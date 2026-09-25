@@ -10,7 +10,8 @@ const STORAGE_KEY_BACKEND = 'MUSIFY_BACKEND_URL';
 export const ENV_SUPABASE_URL =
   process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://bqerkiosvweccpkklwfv.supabase.co';
 export const ENV_SUPABASE_ANON = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
-export const ENV_BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || '';
+export const ENV_BACKEND_URL =
+  process.env.EXPO_PUBLIC_BACKEND_URL || 'https://musify-backend-8xaj.onrender.com';
 
 let supabaseInstance: SupabaseClient | null = null;
 let currentSupabaseUrl = ENV_SUPABASE_URL;
