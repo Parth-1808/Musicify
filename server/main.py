@@ -318,26 +318,37 @@ async def download_track(req: DownloadRequest):
             try:
                 user_folder = req.user_id if req.user_id else "global"
                 
-                # 1. Upload audio to 'songs' bucket
+                # 1. Upload audio to 'tracks' or 'songs' bucket
                 storage_audio_path = f"{user_folder}/{final_audio_filename}"
-                with open(permanent_audio_path, "rb") as f:
-                    supabase_client.storage.from_("songs").upload(
-                        path=storage_audio_path,
-                        file=f,
-                        file_options={"content-type": f"audio/{audio_ext}", "x-upsert": "true"}
-                    )
-                supabase_audio_url = supabase_client.storage.from_("songs").get_public_url(storage_audio_path)
+                for target_bucket in ["tracks", "songs"]:
+                    try:
+                        with open(permanent_audio_path, "rb") as f:
+                            supabase_client.storage.from_(target_bucket).upload(
+                                path=storage_audio_path,
+                                file=f,
+                                file_options={"content-type": f"audio/{audio_ext}", "x-upsert": "true"}
+                            )
+                        supabase_audio_url = supabase_client.storage.from_(target_bucket).get_public_url(storage_audio_path)
+                        break
+                    except Exception as b_err:
+                        continue
 
-                # 2. Upload artwork to 'artwork' bucket
+                # 2. Upload artwork to 'artwork' or 'tracks' bucket
                 if final_thumb_path.exists():
                     storage_art_path = f"{user_folder}/{final_thumb_filename}"
-                    with open(final_thumb_path, "rb") as f:
-                        supabase_client.storage.from_("artwork").upload(
-                            path=storage_art_path,
-                            file=f,
-                            file_options={"content-type": "image/jpeg", "x-upsert": "true"}
-                        )
-                    supabase_artwork_url = supabase_client.storage.from_("artwork").get_public_url(storage_art_path)
+                    for art_bucket in ["artwork", "tracks"]:
+                        try:
+                            upload_path = storage_art_path if art_bucket == "artwork" else f"artwork/{storage_art_path}"
+                            with open(final_thumb_path, "rb") as f:
+                                supabase_client.storage.from_(art_bucket).upload(
+                                    path=upload_path,
+                                    file=f,
+                                    file_options={"content-type": "image/jpeg", "x-upsert": "true"}
+                                )
+                            supabase_artwork_url = supabase_client.storage.from_(art_bucket).get_public_url(upload_path)
+                            break
+                        except Exception:
+                            continue
 
                 # 3. Insert song record into 'songs' table if user_id is provided
                 if req.user_id:
