@@ -25,6 +25,7 @@ import { FullPlayerModal } from './src/components/FullPlayerModal';
 import { DownloadModal } from './src/components/DownloadModal';
 import { QueueModal } from './src/components/QueueModal';
 import { PlaylistModal } from './src/components/PlaylistModal';
+import { GlassToast } from './src/components/GlassToast';
 import { Song } from './src/types';
 
 type ScreenTab = 'home' | 'library' | 'stats' | 'settings';
@@ -218,6 +219,9 @@ function MainNavigator() {
         }}
         targetSong={targetSongForPlaylist}
       />
+
+      {/* Floating Glass Toast Notification */}
+      <GlassToast />
     </View>
   );
 }

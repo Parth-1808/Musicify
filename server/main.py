@@ -157,27 +157,43 @@ async def download_track(req: DownloadRequest):
     temp_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        # Determine audio format & bitrate
+        # Determine audio format & bitrate with studio master settings
         audio_ext = "mp3"
         bitrate_str = "320k"
         postprocessor_codec = "mp3"
-        quality_label = "320kbps Ultra Hi-Fi"
+        quality_label = "320kbps Studio Master (48kHz)"
+        ffmpeg_args = [
+            '-ar', '48000', # 48kHz High-Resolution Audio
+            '-b:a', '320k', # True 320kbps
+            '-q:a', '0',   # Max LAME VBR/CBR encoder precision
+        ]
 
         if req.quality == "flac_lossless":
             audio_ext = "flac"
             postprocessor_codec = "flac"
             bitrate_str = "lossless"
-            quality_label = "FLAC Lossless"
+            quality_label = "24-bit/48kHz Lossless FLAC Master"
+            ffmpeg_args = [
+                '-ar', '48000',
+                '-sample_fmt', 's24', # 24-bit depth for high dynamic range
+            ]
         elif req.quality == "opus_256k":
             audio_ext = "opus"
             postprocessor_codec = "opus"
             bitrate_str = "256k"
-            quality_label = "256kbps Studio Opus"
+            quality_label = "256kbps Acoustic Studio Opus"
+            ffmpeg_args = [
+                '-ar', '48000',
+                '-b:a', '256k',
+                '-vbr', 'on',
+                '-compression_level', '10',
+            ]
 
         output_template = str(temp_dir / f"%(id)s.%(ext)s")
 
         ydl_opts = {
-            'format': 'bestaudio/best',
+            # Pick absolute best available audio stream (Opus 48k or AAC 256k)
+            'format': 'bestaudio[acodec=opus]/bestaudio[acodec=mp4a.40.2]/bestaudio/best',
             'outtmpl': output_template,
             'writethumbnail': True,
             'quiet': True,
@@ -193,6 +209,9 @@ async def download_track(req: DownloadRequest):
                     'add_metadata': True,
                 }
             ],
+            'postprocessor_args': {
+                'FFmpegExtractAudio': ffmpeg_args
+            }
         }
 
         # Run yt-dlp in threadpool

@@ -8,6 +8,7 @@ import {
   Image,
   RefreshControl,
   Dimensions,
+  Switch,
 } from 'react-native';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -44,6 +45,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     isPlaying,
     refreshSongs,
     isLoading,
+    isOfflineMode,
+    toggleOfflineMode,
   } = useMusic();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -97,6 +100,53 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           <Text style={styles.statsBadgeText}>Stats</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Sleek Offline Mode Toggle Switch Bar */}
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onPress={toggleOfflineMode}
+        style={styles.offlineToggleContainer}
+      >
+        <GlassCard
+          glow={isOfflineMode ? 'spotify' : 'none'}
+          style={styles.offlineCard}
+          borderRadius={THEME.borderRadius.md}
+        >
+          <View style={styles.offlineRow}>
+            <View style={[styles.offlineIconBox, isOfflineMode && styles.offlineIconBoxActive]}>
+              <Ionicons
+                name={isOfflineMode ? 'cloud-offline' : 'cloud-done-outline'}
+                size={20}
+                color={isOfflineMode ? THEME.colors.spotifyGreen : THEME.colors.textSecondary}
+              />
+            </View>
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={styles.offlineTitle}>
+                  {isOfflineMode ? 'Offline Mode Active' : 'Offline Mode'}
+                </Text>
+                {isOfflineMode && (
+                  <View style={styles.activePill}>
+                    <Text style={styles.activePillText}>LOCAL ONLY</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={styles.offlineSub}>
+                {isOfflineMode
+                  ? 'Playing local storage only (works with internet off)'
+                  : 'Play local downloaded songs when offline'}
+              </Text>
+            </View>
+            <Switch
+              value={isOfflineMode}
+              onValueChange={toggleOfflineMode}
+              trackColor={{ false: 'rgba(255, 255, 255, 0.12)', true: THEME.colors.spotifyGreenGlow }}
+              thumbColor={isOfflineMode ? THEME.colors.spotifyGreen : '#8E94A5'}
+              style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
+            />
+          </View>
+        </GlassCard>
+      </TouchableOpacity>
 
       {/* Quick YouTube Downloader Action Banner */}
       <TouchableOpacity activeOpacity={0.85} onPress={onOpenDownload}>
@@ -415,5 +465,47 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 6,
     lineHeight: 18,
+  },
+  offlineToggleContainer: {
+    marginBottom: 16,
+  },
+  offlineCard: {
+    padding: 12,
+  },
+  offlineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  offlineIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  offlineIconBoxActive: {
+    backgroundColor: 'rgba(29, 185, 84, 0.18)',
+  },
+  offlineTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: THEME.colors.textPrimary,
+  },
+  activePill: {
+    backgroundColor: THEME.colors.spotifyGreen,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  activePillText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#08090D',
+  },
+  offlineSub: {
+    fontSize: 11,
+    color: THEME.colors.textSecondary,
+    marginTop: 2,
   },
 });

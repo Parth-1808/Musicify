@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -30,6 +30,42 @@ interface FullPlayerModalProps {
 
 const { width, height } = Dimensions.get('window');
 
+const SoundWaveVisualizer: React.FC<{ isPlaying: boolean }> = ({ isPlaying }) => {
+  const [heights, setHeights] = useState<number[]>([10, 20, 14, 28, 24, 16, 30, 22, 12, 26, 28, 16, 10, 18]);
+
+  useEffect(() => {
+    if (!isPlaying) {
+      setHeights([6, 8, 6, 8, 6, 8, 6, 8, 6, 8, 6, 8, 6, 8]);
+      return;
+    }
+    const interval = setInterval(() => {
+      setHeights(Array.from({ length: 14 }, () => Math.floor(Math.random() * 24) + 6));
+    }, 130);
+    return () => clearInterval(interval);
+  }, [isPlaying]);
+
+  return (
+    <View style={styles.soundWaveContainer}>
+      {heights.map((h, i) => (
+        <View
+          key={i}
+          style={[
+            styles.soundWaveBar,
+            {
+              height: h,
+              backgroundColor: isPlaying
+                ? i % 3 === 0
+                  ? THEME.colors.cyanNeon
+                  : THEME.colors.spotifyGreen
+                : 'rgba(255, 255, 255, 0.15)',
+            },
+          ]}
+        />
+      ))}
+    </View>
+  );
+};
+
 export const FullPlayerModal: React.FC<FullPlayerModalProps> = ({
   visible,
   onClose,
@@ -55,6 +91,8 @@ export const FullPlayerModal: React.FC<FullPlayerModalProps> = ({
     removeSongOffline,
     sleepTimerRemainingSeconds,
     isSleepTimerEndOfTrack,
+    eqPreset,
+    setEqPreset,
   } = useMusic();
 
   const [isSeeking, setIsSeeking] = useState(false);
@@ -227,6 +265,48 @@ export const FullPlayerModal: React.FC<FullPlayerModalProps> = ({
                 color={isFav ? THEME.colors.spotifyGreen : THEME.colors.textMuted}
               />
             </TouchableOpacity>
+          </View>
+
+          {/* Audiophile Studio Master & Sound Wave Section */}
+          <View style={styles.audiophileEngineSection}>
+            <View style={styles.audiophileHeaderRow}>
+              <View style={styles.hiResBadge}>
+                <Ionicons name="hardware-chip-outline" size={13} color={THEME.colors.goldMetallic} />
+                <Text style={styles.hiResBadgeText}>24-BIT / 48kHz STUDIO MASTER</Text>
+              </View>
+              <SoundWaveVisualizer isPlaying={isPlaying} />
+            </View>
+
+            {/* EQ Preset Selector Pills */}
+            <View style={styles.eqPillsRow}>
+              {(
+                [
+                  { id: 'studio_master', label: 'Studio Master', icon: 'disc' },
+                  { id: 'bass_boost', label: 'Bass Boost HD', icon: 'radio' },
+                  { id: 'vocal_clarity', label: 'Vocal Clarity', icon: 'mic-outline' },
+                  { id: 'pure_direct', label: 'Pure Direct', icon: 'flash-outline' },
+                ] as const
+              ).map((preset) => {
+                const isActive = eqPreset === preset.id;
+                return (
+                  <TouchableOpacity
+                    key={preset.id}
+                    activeOpacity={0.7}
+                    onPress={() => setEqPreset(preset.id)}
+                    style={[styles.eqPill, isActive && styles.eqPillActive]}
+                  >
+                    <Ionicons
+                      name={preset.icon as any}
+                      size={12}
+                      color={isActive ? THEME.colors.spotifyGreen : THEME.colors.textMuted}
+                    />
+                    <Text style={[styles.eqPillText, isActive && styles.eqPillTextActive]}>
+                      {preset.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           </View>
 
           {/* Progress Slider */}
@@ -564,5 +644,71 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: THEME.colors.textSecondary,
     fontWeight: '600',
+  },
+  audiophileEngineSection: {
+    marginVertical: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderRadius: THEME.borderRadius.md,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  audiophileHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  hiResBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  hiResBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: THEME.colors.goldMetallic,
+    letterSpacing: 0.8,
+  },
+  soundWaveContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    height: 24,
+    gap: 2,
+  },
+  soundWaveBar: {
+    width: 2.5,
+    borderRadius: 1.5,
+  },
+  eqPillsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+  },
+  eqPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 5,
+    paddingHorizontal: 4,
+    borderRadius: THEME.borderRadius.sm,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    gap: 4,
+  },
+  eqPillActive: {
+    backgroundColor: 'rgba(29, 185, 84, 0.18)',
+    borderColor: THEME.colors.spotifyGreen,
+  },
+  eqPillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: THEME.colors.textMuted,
+  },
+  eqPillTextActive: {
+    color: THEME.colors.spotifyGreen,
   },
 });

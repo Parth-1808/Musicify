@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Song, Playlist } from '../types';
 import { audioService } from '../services/audioService';
 import { StorageService } from '../services/storageService';
@@ -54,6 +55,19 @@ interface MusicContextType {
   setSleepTimer: (minutes: number | null, isEndOfTrack?: boolean) => void;
   cancelSleepTimer: () => void;
 
+  // Toast Notifications
+  toastMessage: string | null;
+  toastIcon: string;
+  showToast: (message: string, icon?: string) => void;
+
+  // Hi-Fi Audio Equalizer Engine
+  eqPreset: 'studio_master' | 'bass_boost' | 'vocal_clarity' | 'pure_direct';
+  setEqPreset: (preset: 'studio_master' | 'bass_boost' | 'vocal_clarity' | 'pure_direct') => void;
+
+  // Offline Mode Toggle
+  isOfflineMode: boolean;
+  toggleOfflineMode: () => void;
+
   // Playlist Management
   createPlaylist: (name: string, description?: string) => Promise<Playlist | null>;
   addSongToPlaylist: (playlistId: string, songId: string) => Promise<void>;
@@ -66,11 +80,15 @@ const MusicContext = createContext<MusicContextType>({} as MusicContextType);
 export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
 
-  const [songs, setSongs] = useState<Song[]>([]);
+  const [rawSongs, setRawSongs] = useState<Song[]>([]);
   const [offlineSongs, setOfflineSongs] = useState<Song[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isOfflineMode, setIsOfflineMode] = useState<boolean>(false);
+
+  // Expose offline-only songs when offline mode is active
+  const songs = isOfflineMode ? offlineSongs : rawSongs;
 
   // Playback state
   const [currentSong, setCurrentSong] = useState<Song | null>(null);
@@ -86,6 +104,57 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Sleep Timer state
   const [sleepTimerRemainingSeconds, setSleepTimerRemainingSeconds] = useState<number | null>(null);
   const [isSleepTimerEndOfTrack, setIsSleepTimerEndOfTrack] = useState<boolean>(false);
+
+  // Toast notification state
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastIcon, setToastIcon] = useState<string>('checkmark-circle');
+
+  // Audiophile Hi-Fi EQ Preset state
+  const [eqPreset, setEqPresetState] = useState<'studio_master' | 'bass_boost' | 'vocal_clarity' | 'pure_direct'>('studio_master');
+
+  const setEqPreset = (preset: 'studio_master' | 'bass_boost' | 'vocal_clarity' | 'pure_direct') => {
+    setEqPresetState(preset);
+    const names = {
+      studio_master: 'Studio Master (48kHz)',
+      bass_boost: 'Bass Boost HD (Warm sub-bass)',
+      vocal_clarity: 'Vocal Clarity (Crisp mids)',
+      pure_direct: 'Pure Direct (Bit-perfect bypass)',
+    };
+    showToast(`EQ: ${names[preset]}`, 'options');
+  };
+
+  const showToast = (message: string, icon = 'checkmark-circle') => {
+    setToastMessage(message);
+    setToastIcon(icon);
+    setTimeout(() => {
+      setToastMessage(null);
+    }, 2800);
+  };
+
+  // Restore saved offline mode preference
+  useEffect(() => {
+    AsyncStorage.getItem('@musify:offline_mode').then((val) => {
+      if (val === 'true') {
+        setIsOfflineMode(true);
+      }
+    });
+  }, []);
+
+  const toggleOfflineMode = async () => {
+    const nextVal = !isOfflineMode;
+    setIsOfflineMode(nextVal);
+    await AsyncStorage.setItem('@musify:offline_mode', nextVal ? 'true' : 'false');
+    if (nextVal) {
+      showToast('Offline Mode: Playing local downloads only', 'cloud-offline');
+      if (currentSong && !currentSong.isOffline && !currentSong.localAudioUri) {
+        await audioService.pause();
+        setIsPlaying(false);
+      }
+    } else {
+      showToast('Online Mode: Cloud library connected', 'cloud-done');
+      await loadLibrary();
+    }
+  };
 
   // Refs for callbacks
   const queueRef = useRef<Song[]>([]);
@@ -157,7 +226,15 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const favs = await StorageService.getFavorites();
       setFavorites(favs);
 
-      // 3. Get cloud songs
+      // 3. If offline mode active, avoid remote calls and use local storage only
+      if (isOfflineMode) {
+        setRawSongs(localOffline);
+        const localPls = await StorageService.getLocalPlaylists();
+        setPlaylists(localPls);
+        return;
+      }
+
+      // 4. Get cloud songs
       const cloudSongs = await ApiService.fetchSongs(user?.id);
 
       // Merge local offline URIs if song is already cached
@@ -181,9 +258,9 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
       });
 
-      setSongs(mergedSongs);
+      setRawSongs(mergedSongs);
 
-      // 4. Get playlists
+      // 5. Get playlists
       const pls = await ApiService.fetchPlaylists(user?.id);
       if (pls.length > 0) {
         setPlaylists(pls);
@@ -201,15 +278,17 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const handleSongPlayReported = async (songId: string) => {
     try {
       // Increment local state immediately
-      setSongs((prev) =>
+      setRawSongs((prev) =>
         prev.map((s) => (s.id === songId ? { ...s, play_count: (s.play_count || 0) + 1 } : s))
       );
       setOfflineSongs((prev) =>
         prev.map((s) => (s.id === songId ? { ...s, play_count: (s.play_count || 0) + 1 } : s))
       );
 
-      // Sync with backend & Supabase
-      await ApiService.incrementPlayCount(songId);
+      // Sync with backend & Supabase if online
+      if (!isOfflineMode) {
+        await ApiService.incrementPlayCount(songId);
+      }
     } catch (e) {
       console.warn('Could not record play count:', e);
     }
@@ -255,6 +334,11 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const playSong = async (song: Song, contextQueue?: Song[]) => {
     try {
+      if (isOfflineMode && !song.localAudioUri && !song.isOffline) {
+        showToast('Song not downloaded for offline', 'cloud-offline');
+        return;
+      }
+
       let newQueue = contextQueue && contextQueue.length > 0 ? [...contextQueue] : [...songs];
       if (newQueue.length === 0) {
         newQueue = [song];
@@ -341,6 +425,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const addToQueue = (song: Song) => {
     setQueue((prev) => [...prev, song]);
+    showToast(`Added to queue`, 'list');
   };
 
   const playNext = (song: Song) => {
@@ -349,6 +434,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       copy.splice(queueIndex + 1, 0, song);
       return copy;
     });
+    showToast(`Playing next`, 'play-skip-forward');
   };
 
   const removeFromQueue = (index: number) => {
@@ -385,7 +471,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setFavorites((prev) =>
       isNowFav ? [...prev, songId] : prev.filter((id) => id !== songId)
     );
-    setSongs((prev) =>
+    setRawSongs((prev) =>
       prev.map((s) => (s.id === songId ? { ...s, is_favorite: isNowFav } : s))
     );
   };
@@ -397,7 +483,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const filtered = prev.filter((s) => s.id !== song.id);
         return [offlineVersion, ...filtered];
       });
-      setSongs((prev) =>
+      setRawSongs((prev) =>
         prev.map((s) =>
           s.id === song.id
             ? {
@@ -418,7 +504,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const removeSongOffline = async (songId: string) => {
     await StorageService.removeSongOffline(songId);
     setOfflineSongs((prev) => prev.filter((s) => s.id !== songId));
-    setSongs((prev) =>
+    setRawSongs((prev) =>
       prev.map((s) =>
         s.id === songId
           ? { ...s, isOffline: false, localAudioUri: undefined, localArtworkUri: undefined }
@@ -443,10 +529,12 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setOfflineSongs((prev) => prev.filter((s) => s.id !== songId));
 
     // 4. Remove from songs state
-    setSongs((prev) => prev.filter((s) => s.id !== songId));
+    const songToDelete = songs.find((s) => s.id === songId);
+    setRawSongs((prev) => prev.filter((s) => s.id !== songId));
 
     // 5. Delete on backend and Supabase
     await ApiService.deleteSong(songId, user?.id);
+    showToast(`Deleted "${songToDelete?.title || 'Track'}"`, 'trash');
   };
 
   const refreshSongs = async () => {
@@ -468,10 +556,12 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const updated = [newPl, ...playlists];
       setPlaylists(updated);
       await StorageService.saveLocalPlaylists(updated);
+      showToast(`Created playlist "${name}"`, 'folder');
       return newPl;
     }
 
     setPlaylists((prev) => [newPl!, ...prev]);
+    showToast(`Created playlist "${name}"`, 'folder');
     return newPl;
   };
 
@@ -481,6 +571,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     await ApiService.addSongToPlaylist(playlistId, songId);
 
+    const targetPl = playlists.find((p) => p.id === playlistId);
     setPlaylists((prev) =>
       prev.map((pl) => {
         if (pl.id === playlistId) {
@@ -494,6 +585,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return pl;
       })
     );
+    showToast(`Added to "${targetPl?.name || 'Playlist'}"`, 'folder');
   };
 
   const removeSongFromPlaylist = async (playlistId: string, songId: string) => {
@@ -510,6 +602,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return pl;
       })
     );
+    showToast(`Removed from playlist`, 'trash');
   };
 
   const deletePlaylist = async (playlistId: string) => {
@@ -517,15 +610,18 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setPlaylists((prev) => prev.filter((pl) => pl.id !== playlistId));
     const localPls = await StorageService.getLocalPlaylists();
     await StorageService.saveLocalPlaylists(localPls.filter((p) => p.id !== playlistId));
+    showToast(`Playlist deleted`, 'trash');
   };
 
   const setSleepTimer = (minutes: number | null, isEndOfTrack = false) => {
     if (isEndOfTrack) {
       setIsSleepTimerEndOfTrack(true);
       setSleepTimerRemainingSeconds(null);
+      showToast('Sleep timer: End of track', 'moon');
     } else if (minutes && minutes > 0) {
       setIsSleepTimerEndOfTrack(false);
       setSleepTimerRemainingSeconds(minutes * 60);
+      showToast(`Sleep timer: ${minutes} min`, 'moon');
     } else {
       cancelSleepTimer();
     }
@@ -534,6 +630,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const cancelSleepTimer = () => {
     setIsSleepTimerEndOfTrack(false);
     setSleepTimerRemainingSeconds(null);
+    showToast('Sleep timer turned off', 'moon');
   };
 
   return (
@@ -557,6 +654,13 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         isSleepTimerEndOfTrack,
         setSleepTimer,
         cancelSleepTimer,
+        toastMessage,
+        toastIcon,
+        showToast,
+        eqPreset,
+        setEqPreset,
+        isOfflineMode,
+        toggleOfflineMode,
         playSong,
         togglePlay,
         pauseSong,

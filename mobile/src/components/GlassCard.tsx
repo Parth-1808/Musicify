@@ -24,13 +24,34 @@ export const GlassCard: React.FC<GlassCardProps> = ({
       case 'spotify':
         return THEME.colors.spotifyGreenGlow;
       case 'cyan':
-        return 'rgba(0, 242, 254, 0.3)';
+        return 'rgba(0, 242, 254, 0.45)';
       case 'purple':
-        return 'rgba(138, 43, 226, 0.3)';
+        return 'rgba(138, 43, 226, 0.45)';
       default:
         return THEME.colors.glassBorder;
     }
   };
+
+  const getGlowShadow = () => {
+    if (glow === 'spotify') {
+      return {
+        shadowColor: THEME.colors.spotifyGreen,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.35,
+        shadowRadius: 20,
+        elevation: 8,
+      };
+    }
+    return {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 12 },
+      shadowOpacity: 0.45,
+      shadowRadius: 22,
+      elevation: 7,
+    };
+  };
+
+  const isWeb = Platform.OS === 'web';
 
   return (
     <View
@@ -39,24 +60,34 @@ export const GlassCard: React.FC<GlassCardProps> = ({
         {
           borderRadius,
           borderColor: getGlowBorderColor(),
+          borderTopColor: glow === 'spotify' ? 'rgba(30, 215, 96, 0.7)' : THEME.colors.glassBorderTop,
+          borderBottomColor: THEME.colors.glassBorderBottom,
         },
+        getGlowShadow(),
+        isWeb && ({
+          backdropFilter: `blur(${intensity}px) saturate(190%)`,
+          WebkitBackdropFilter: `blur(${intensity}px) saturate(190%)`,
+        } as any),
         style,
       ]}
     >
-      {Platform.OS === 'ios' ? (
+      {Platform.OS === 'ios' && (
         <BlurView
           intensity={intensity}
           tint="dark"
           style={[StyleSheet.absoluteFill, { borderRadius }]}
         />
-      ) : (
-        <LinearGradient
-          colors={THEME.colors.gradientGlass as any}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[StyleSheet.absoluteFill, { borderRadius }]}
-        />
       )}
+
+      {/* Realistic liquid specular sheen gradient */}
+      <LinearGradient
+        colors={THEME.colors.gradientGlassSheen as any}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0.3, y: 1 }}
+        style={[StyleSheet.absoluteFill, { borderRadius }]}
+        pointerEvents="none"
+      />
+
       <View style={styles.content}>{children}</View>
     </View>
   );
@@ -67,11 +98,6 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.colors.glassSurface,
     borderWidth: 1,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 15,
-    elevation: 6,
   },
   content: {
     zIndex: 1,

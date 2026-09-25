@@ -178,13 +178,15 @@ export const SongListItem: React.FC<SongListItemProps> = ({
           />
         </TouchableOpacity>
 
-        {/* More Actions Menu Button */}
+        {/* Three Dots Menu Button on Far Right */}
         <TouchableOpacity
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          activeOpacity={0.75}
+          hitSlop={{ top: 12, bottom: 12, left: 10, right: 12 }}
           onPress={() => setMenuVisible(true)}
           style={styles.moreButton}
+          accessibilityLabel="Track Options"
         >
-          <Feather name="more-vertical" size={20} color={THEME.colors.textSecondary} />
+          <Ionicons name="ellipsis-vertical" size={17} color={THEME.colors.textPrimary} />
         </TouchableOpacity>
       </TouchableOpacity>
 
@@ -219,7 +221,23 @@ export const SongListItem: React.FC<SongListItemProps> = ({
 
               <View style={styles.divider} />
 
-              {/* Play Next */}
+              {/* 1. Add to Queue */}
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => {
+                  addToQueue(song);
+                  setMenuVisible(false);
+                }}
+              >
+                <MaterialCommunityIcons
+                  name="playlist-plus"
+                  size={22}
+                  color={THEME.colors.spotifyGreen}
+                />
+                <Text style={styles.menuItemText}>Add to Queue</Text>
+              </TouchableOpacity>
+
+              {/* 2. Play Next */}
               <TouchableOpacity
                 style={styles.menuItem}
                 onPress={() => {
@@ -235,23 +253,7 @@ export const SongListItem: React.FC<SongListItemProps> = ({
                 <Text style={styles.menuItemText}>Play Next</Text>
               </TouchableOpacity>
 
-              {/* Add to Queue */}
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={() => {
-                  addToQueue(song);
-                  setMenuVisible(false);
-                }}
-              >
-                <MaterialCommunityIcons
-                  name="playlist-plus"
-                  size={22}
-                  color={THEME.colors.textPrimary}
-                />
-                <Text style={styles.menuItemText}>Add to Queue</Text>
-              </TouchableOpacity>
-
-              {/* Add to Playlist */}
+              {/* 3. Add to Playlist (Prompts 'Which playlist?') */}
               <TouchableOpacity
                 style={styles.menuItem}
                 onPress={() => {
@@ -259,11 +261,11 @@ export const SongListItem: React.FC<SongListItemProps> = ({
                   if (onAddToPlaylist) onAddToPlaylist(song);
                 }}
               >
-                <Ionicons name="folder-outline" size={20} color={THEME.colors.textPrimary} />
+                <Ionicons name="folder-open-outline" size={21} color={THEME.colors.textPrimary} />
                 <Text style={styles.menuItemText}>Add to Playlist</Text>
               </TouchableOpacity>
 
-              {/* Download / Remove Offline */}
+              {/* 4. Download / Remove Offline */}
               {song.isOffline ? (
                 <TouchableOpacity style={styles.menuItem} onPress={handleRemoveOffline}>
                   <Ionicons name="trash-outline" size={20} color={THEME.colors.textSecondary} />
@@ -279,7 +281,7 @@ export const SongListItem: React.FC<SongListItemProps> = ({
                     <ActivityIndicator size="small" color={THEME.colors.spotifyGreen} />
                   ) : (
                     <Ionicons
-                      name="arrow-down-circle-outline"
+                      name="cloud-download-outline"
                       size={20}
                       color={THEME.colors.spotifyGreen}
                     />
@@ -292,7 +294,7 @@ export const SongListItem: React.FC<SongListItemProps> = ({
 
               <View style={styles.divider} />
 
-              {/* Delete Song */}
+              {/* 5. Delete Song (Cloud & Local) */}
               <TouchableOpacity style={styles.menuItem} onPress={handleDelete}>
                 <Ionicons name="trash" size={20} color={THEME.colors.danger} />
                 <Text style={[styles.menuItemText, { color: THEME.colors.danger }]}>
@@ -427,7 +429,16 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   moreButton: {
-    padding: 8,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(255, 255, 255, 0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderTopColor: 'rgba(255, 255, 255, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 6,
   },
   modalBackdrop: {
     flex: 1,

@@ -36,6 +36,8 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
     playSong,
     deletePlaylist,
     removeSongFromPlaylist,
+    isOfflineMode,
+    toggleOfflineMode,
   } = useMusic();
 
   const [activeTab, setActiveTab] = useState<TabType>('all');
@@ -89,10 +91,38 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>Your Library</Text>
-        <TouchableOpacity onPress={onOpenDownload} style={styles.addBtn}>
-          <Ionicons name="add" size={24} color={THEME.colors.spotifyGreen} />
-        </TouchableOpacity>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.title}>Your Library</Text>
+          <Text style={styles.subTitle}>
+            {isOfflineMode ? 'Offline Mode (Local only)' : `${songs.length} total tracks`}
+          </Text>
+        </View>
+
+        <View style={styles.headerRight}>
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={toggleOfflineMode}
+            style={[styles.offlineHeaderPill, isOfflineMode && styles.offlineHeaderPillActive]}
+          >
+            <Ionicons
+              name={isOfflineMode ? 'cloud-offline' : 'cloud-done-outline'}
+              size={15}
+              color={isOfflineMode ? THEME.colors.spotifyGreen : THEME.colors.textMuted}
+            />
+            <Text
+              style={[
+                styles.offlineHeaderPillText,
+                isOfflineMode && styles.offlineHeaderPillTextActive,
+              ]}
+            >
+              {isOfflineMode ? 'Offline' : 'Online'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={onOpenDownload} style={styles.addBtn}>
+            <Ionicons name="add" size={24} color={THEME.colors.spotifyGreen} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Search Input */}
@@ -314,6 +344,39 @@ const styles = StyleSheet.create({
     fontSize: 26,
     fontWeight: '800',
     color: THEME.colors.textPrimary,
+  },
+  subTitle: {
+    fontSize: 12,
+    color: THEME.colors.textSecondary,
+    marginTop: 2,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  offlineHeaderPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: THEME.borderRadius.full,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    gap: 5,
+  },
+  offlineHeaderPillActive: {
+    backgroundColor: 'rgba(29, 185, 84, 0.18)',
+    borderColor: THEME.colors.spotifyGreen,
+  },
+  offlineHeaderPillText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: THEME.colors.textMuted,
+  },
+  offlineHeaderPillTextActive: {
+    color: THEME.colors.spotifyGreen,
   },
   addBtn: {
     width: 38,
