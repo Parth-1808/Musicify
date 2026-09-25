@@ -46,6 +46,21 @@ DOWNLOADS_DIR.mkdir(exist_ok=True)
 ARTWORK_DIR.mkdir(exist_ok=True)
 METADATA_DIR.mkdir(exist_ok=True)
 
+# Cookie setup for bypassing YouTube datacenter bot blocks
+COOKIE_FILE_PATH = BASE_DIR / "cookies.txt"
+env_cookies = os.getenv("YOUTUBE_COOKIES", "").strip()
+if env_cookies:
+    try:
+        import base64
+        if not env_cookies.startswith("# Netscape"):
+            decoded = base64.b64decode(env_cookies).decode("utf-8")
+            COOKIE_FILE_PATH.write_text(decoded, encoding="utf-8")
+        else:
+            COOKIE_FILE_PATH.write_text(env_cookies, encoding="utf-8")
+        print("Loaded YouTube cookies from YOUTUBE_COOKIES env variable.")
+    except Exception:
+        COOKIE_FILE_PATH.write_text(env_cookies, encoding="utf-8")
+
 # Supabase Client Initialization
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", os.getenv("SUPABASE_ANON_KEY", ""))
@@ -117,10 +132,12 @@ def get_video_info(req: VideoInfoRequest):
         'no_warnings': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android']
+                'player_client': ['android', 'web_creator']
             }
         },
     }
+    if COOKIE_FILE_PATH.exists() and COOKIE_FILE_PATH.stat().st_size > 0:
+        ydl_opts['cookiefile'] = str(COOKIE_FILE_PATH)
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(req.url, download=False)
@@ -230,6 +247,9 @@ async def download_track(req: DownloadRequest):
                 'FFmpegExtractAudio': ffmpeg_args
             }
         }
+
+        if COOKIE_FILE_PATH.exists() and COOKIE_FILE_PATH.stat().st_size > 0:
+            ydl_opts['cookiefile'] = str(COOKIE_FILE_PATH)
 
         # Run yt-dlp in threadpool
         loop = asyncio.get_event_loop()
