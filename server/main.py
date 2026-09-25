@@ -129,22 +129,33 @@ def download_stream_via_ffmpeg(stream_url: str, headers: dict, ffmpeg_args: list
         print(f"Direct FFmpeg streaming exception: {e}")
         return False
 
+def has_usable_audio(info: Optional[dict]) -> bool:
+    """Verify that an extraction actually produced formats with accessible media streams"""
+    if not info:
+        return False
+    formats = info.get('formats', [])
+    for f in formats:
+        if f.get('url') and (f.get('acodec') not in (None, 'none') or f.get('vcodec') not in (None, 'none')):
+            return True
+    return False
+
 def extract_info_with_fallback(base_opts: dict, url: str, download: bool = False):
     """Try extraction with multiple client strategies, with cookies and without cookies fallback"""
     strategies = [
-        ['android'],
-        ['android_vr'],
-        ['ios'],
         ['tv_embedded'],
+        None,
+        ['android_vr'],
+        ['android'],
         ['web'],
-        None
+        ['ios']
     ]
     last_err = None
+    fallback_info = None
     
     for client in strategies:
-        cookie_options = [True] if (COOKIE_FILE_PATH.exists() and COOKIE_FILE_PATH.stat().st_size > 0) else [False]
-        if True in cookie_options:
-            cookie_options.append(False) # Fallback without cookies if user cookies are expired/restricted
+        cookie_options = [False]
+        if COOKIE_FILE_PATH.exists() and COOKIE_FILE_PATH.stat().st_size > 0:
+            cookie_options.append(True)
         
         for use_cookies in cookie_options:
             opts = dict(base_opts)
@@ -166,11 +177,17 @@ def extract_info_with_fallback(base_opts: dict, url: str, download: bool = False
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=download)
                     if info:
-                        return info
+                        if download or has_usable_audio(info):
+                            return info
+                        elif fallback_info is None:
+                            fallback_info = info
             except Exception as e:
                 last_err = e
                 continue
     
+    if fallback_info:
+        return fallback_info
+
     raise last_err or Exception("Could not extract audio from YouTube")
 
 # Supabase Client Initialization
