@@ -4,6 +4,7 @@ import uuid
 import json
 import shutil
 import asyncio
+import subprocess
 from pathlib import Path
 from typing import Optional, List
 from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, Header
@@ -67,41 +68,109 @@ if env_cookies:
         COOKIE_FILE_PATH.write_text(env_cookies, encoding="utf-8")
         print(f"Loaded raw YouTube cookies: {e}")
 
+def get_ffmpeg_binary() -> str:
+    """Ensure ffmpeg binary is found in any OS or cloud environment"""
+    try:
+        import static_ffmpeg
+        static_ffmpeg.add_paths()
+    except Exception:
+        pass
+    bin_path = shutil.which("ffmpeg")
+    return bin_path or "ffmpeg"
+
+def get_best_stream_format(info: dict) -> Optional[dict]:
+    """Find the highest quality stream with an accessible URL"""
+    formats = info.get('formats', [])
+    if not formats:
+        return None
+    
+    usable = [
+        f for f in formats 
+        if f.get('url') and (f.get('acodec') not in (None, 'none') or f.get('vcodec') not in (None, 'none'))
+    ]
+    if not usable:
+        return None
+    
+    def score_format(f):
+        # Prefer audio-only streams
+        is_audio_only = 2 if (f.get('vcodec') in (None, 'none') and f.get('acodec') not in (None, 'none')) else 1
+        # Prefer known good audio itags if bitrates are similar
+        itag_bonus = 10 if str(f.get('format_id')) in ('251', '140', '18') else 0
+        bitrate = f.get('abr') or f.get('tbr') or 0
+        return (is_audio_only, itag_bonus, bitrate)
+    
+    usable.sort(key=score_format)
+    return usable[-1]
+
+def download_stream_via_ffmpeg(stream_url: str, headers: dict, ffmpeg_args: list, output_file: Path) -> bool:
+    """Stream audio directly from Google's CDN via FFmpeg, bypassing all yt-dlp format match issues"""
+    ffmpeg_bin = get_ffmpeg_binary()
+    ua = headers.get('User-Agent', '')
+    cmd = [ffmpeg_bin, '-y']
+    if ua:
+        cmd.extend(['-user_agent', ua])
+    
+    header_str = "".join(f"{k}: {v}\r\n" for k, v in headers.items() if k.lower() not in ('user-agent', 'content-length', 'host'))
+    if header_str:
+        cmd.extend(['-headers', header_str])
+    
+    cmd.extend(['-i', stream_url])
+    cmd.extend(ffmpeg_args)
+    cmd.append(str(output_file))
+    
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        if res.returncode == 0 and output_file.exists() and output_file.stat().st_size > 10000:
+            print(f"Direct FFmpeg streaming successful! Size: {output_file.stat().st_size} bytes")
+            return True
+        print(f"Direct FFmpeg streaming failed (code {res.returncode}): {res.stderr[-300:]}")
+        return False
+    except Exception as e:
+        print(f"Direct FFmpeg streaming exception: {e}")
+        return False
+
 def extract_info_with_fallback(base_opts: dict, url: str, download: bool = False):
-    """Try extraction with multiple client strategies in order of reliability"""
+    """Try extraction with multiple client strategies, with cookies and without cookies fallback"""
     strategies = [
         ['android'],
-        ['tv_embedded'],
         ['android_vr'],
-        ['web']
+        ['ios'],
+        ['tv_embedded'],
+        ['web'],
+        None
     ]
     last_err = None
-    for client in strategies:
-        opts = dict(base_opts)
-        opts['extractor_args'] = {'youtube': {'player_client': client}}
-        opts.setdefault('format', 'ba/b/best[acodec!=none]/18/best')
-        if not download:
-            opts['ignore_no_formats_error'] = True
-        if COOKIE_FILE_PATH.exists() and COOKIE_FILE_PATH.stat().st_size > 0:
-            opts['cookiefile'] = str(COOKIE_FILE_PATH)
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                return ydl.extract_info(url, download=download)
-        except Exception as e:
-            last_err = e
-            continue
     
-    # Final attempt with raw options and cookies if available
-    if COOKIE_FILE_PATH.exists() and COOKIE_FILE_PATH.stat().st_size > 0:
-        opts = dict(base_opts)
-        opts['cookiefile'] = str(COOKIE_FILE_PATH)
-        opts.pop('extractor_args', None)
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                return ydl.extract_info(url, download=download)
-        except Exception as e:
-            last_err = e
-
+    for client in strategies:
+        cookie_options = [True] if (COOKIE_FILE_PATH.exists() and COOKIE_FILE_PATH.stat().st_size > 0) else [False]
+        if True in cookie_options:
+            cookie_options.append(False) # Fallback without cookies if user cookies are expired/restricted
+        
+        for use_cookies in cookie_options:
+            opts = dict(base_opts)
+            if client is not None:
+                opts['extractor_args'] = {'youtube': {'player_client': client}}
+            else:
+                opts.pop('extractor_args', None)
+            
+            opts.setdefault('format', 'ba/b/best[acodec!=none]/18/best')
+            if not download:
+                opts['ignore_no_formats_error'] = True
+            
+            if use_cookies and COOKIE_FILE_PATH.exists() and COOKIE_FILE_PATH.stat().st_size > 0:
+                opts['cookiefile'] = str(COOKIE_FILE_PATH)
+            else:
+                opts.pop('cookiefile', None)
+            
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url, download=download)
+                    if info:
+                        return info
+            except Exception as e:
+                last_err = e
+                continue
+    
     raise last_err or Exception("Could not extract audio from YouTube")
 
 # Supabase Client Initialization
@@ -163,6 +232,47 @@ def health_check():
     return {
         "status": "healthy",
         "supabase_configured": bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)
+    }
+
+@app.get("/api/diag")
+def diagnostic_check(url: str = "https://www.youtube.com/watch?v=3jnKPfL8Xhg"):
+    """Check cookies, ffmpeg, and available YouTube stream formats on the live host"""
+    ffmpeg_path = get_ffmpeg_binary()
+    cookie_exists = COOKIE_FILE_PATH.exists()
+    cookie_size = COOKIE_FILE_PATH.stat().st_size if cookie_exists else 0
+
+    ydl_opts = {
+        'skip_download': True,
+        'quiet': True,
+        'no_warnings': True,
+        'ignore_no_formats_error': True
+    }
+    extracted_formats = []
+    error_msg = None
+    try:
+        info = extract_info_with_fallback(ydl_opts, url, download=False)
+        for f in info.get('formats', []):
+            if f.get('url'):
+                extracted_formats.append({
+                    "id": f.get('format_id'),
+                    "ext": f.get('ext'),
+                    "acodec": f.get('acodec'),
+                    "vcodec": f.get('vcodec'),
+                    "abr": f.get('abr') or f.get('tbr')
+                })
+    except Exception as e:
+        error_msg = str(e)
+
+    return {
+        "ffmpeg": ffmpeg_path,
+        "cookie_file": {
+            "exists": cookie_exists,
+            "size": cookie_size
+        },
+        "url_tested": url,
+        "usable_formats_count": len(extracted_formats),
+        "usable_formats": extracted_formats[:10],
+        "error": error_msg
     }
 
 @app.post("/api/info")
@@ -257,58 +367,73 @@ async def download_track(req: DownloadRequest):
 
         output_template = str(temp_dir / f"%(id)s.%(ext)s")
 
-        ydl_opts = {
-            # Pick absolute best available audio stream
-            'format': 'ba/b/best[acodec!=none]/18/best',
-            'outtmpl': output_template,
-            'writethumbnail': True,
+        # Step 1: Extract video info & format list without downloading
+        loop = asyncio.get_event_loop()
+        meta_opts = {
+            'skip_download': True,
             'quiet': True,
             'no_warnings': True,
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['android']
-                }
-            },
-            'postprocessors': [
-                {
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': postprocessor_codec,
-                    'preferredquality': bitrate_str if bitrate_str != "lossless" else None,
-                },
-                {
-                    'key': 'FFmpegMetadata',
-                    'add_metadata': True,
-                }
-            ],
-            'postprocessor_args': {
-                'FFmpegExtractAudio': ffmpeg_args
-            }
+            'ignore_no_formats_error': True,
         }
-
-        # Run yt-dlp in threadpool with multi-client fallback
-        loop = asyncio.get_event_loop()
-        def run_ytdl():
-            return extract_info_with_fallback(ydl_opts, req.url, download=True)
-
-        info = await loop.run_in_executor(None, run_ytdl)
+        info = await loop.run_in_executor(None, lambda: extract_info_with_fallback(meta_opts, req.url, download=False))
         if not info:
-            raise HTTPException(status_code=400, detail="Failed to download audio track")
+            raise HTTPException(status_code=400, detail="Could not retrieve video information from YouTube")
 
         video_id = info.get('id', song_uuid)
         raw_title = info.get('title', 'Unknown Title')
         detected_artist, title = clean_title(raw_title)
         artist = info.get('artist') or detected_artist or info.get('uploader') or "Unknown Artist"
         duration = info.get('duration', 0)
-
-        # Locate downloaded audio file
         converted_audio_path = temp_dir / f"{video_id}.{audio_ext}"
+
+        # Step 2: Attempt Direct Ultra Hi-Fi FFmpeg Stream Extraction
+        best_stream = get_best_stream_format(info)
+        stream_success = False
+        if best_stream and best_stream.get('url'):
+            stream_headers = best_stream.get('http_headers', {})
+            stream_url = best_stream['url']
+            print(f"Attempting direct FFmpeg streaming for format {best_stream.get('format_id')}...")
+            stream_success = await loop.run_in_executor(
+                None, 
+                lambda: download_stream_via_ffmpeg(stream_url, stream_headers, ffmpeg_args, converted_audio_path)
+            )
+
+        # Step 3: If direct streaming was not used or failed, fallback to standard yt-dlp download
+        if not stream_success or not converted_audio_path.exists() or converted_audio_path.stat().st_size < 10000:
+            print("Direct stream download not available; falling back to yt-dlp multi-client extractor...")
+            preferred_format = str(best_stream.get('format_id')) if (best_stream and best_stream.get('format_id')) else 'ba/b/best[acodec!=none]/18/best'
+            ydl_opts = {
+                'format': preferred_format,
+                'outtmpl': output_template,
+                'writethumbnail': True,
+                'quiet': True,
+                'no_warnings': True,
+                'postprocessors': [
+                    {
+                        'key': 'FFmpegExtractAudio',
+                        'preferredcodec': postprocessor_codec,
+                        'preferredquality': bitrate_str if bitrate_str != "lossless" else None,
+                    },
+                    {
+                        'key': 'FFmpegMetadata',
+                        'add_metadata': True,
+                    }
+                ],
+                'postprocessor_args': {
+                    'FFmpegExtractAudio': ffmpeg_args
+                }
+            }
+            info_dl = await loop.run_in_executor(None, lambda: extract_info_with_fallback(ydl_opts, req.url, download=True))
+            if info_dl:
+                info = info_dl
+
+        # Step 4: Locate downloaded audio file
         if not converted_audio_path.exists():
-            # Find any file in temp_dir with target extension
             matches = list(temp_dir.glob(f"*.{audio_ext}"))
             if matches:
                 converted_audio_path = matches[0]
             else:
-                raise HTTPException(status_code=500, detail="Audio conversion failed")
+                raise HTTPException(status_code=500, detail="Audio conversion failed: no audio file produced")
 
         # Locate downloaded artwork thumbnail
         thumbnail_path = None
