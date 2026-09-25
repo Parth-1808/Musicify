@@ -79,6 +79,9 @@ def extract_info_with_fallback(base_opts: dict, url: str, download: bool = False
     for client in strategies:
         opts = dict(base_opts)
         opts['extractor_args'] = {'youtube': {'player_client': client}}
+        opts.setdefault('format', 'ba/b/best[acodec!=none]/18/best')
+        if not download:
+            opts['ignore_no_formats_error'] = True
         if COOKIE_FILE_PATH.exists() and COOKIE_FILE_PATH.stat().st_size > 0:
             opts['cookiefile'] = str(COOKIE_FILE_PATH)
         try:
@@ -170,6 +173,8 @@ def get_video_info(req: VideoInfoRequest):
         'extract_flat': False,
         'quiet': True,
         'no_warnings': True,
+        'format': 'ba/b/best[acodec!=none]/18/best',
+        'ignore_no_formats_error': True,
     }
     try:
         info = extract_info_with_fallback(ydl_opts, req.url, download=False)
@@ -253,8 +258,8 @@ async def download_track(req: DownloadRequest):
         output_template = str(temp_dir / f"%(id)s.%(ext)s")
 
         ydl_opts = {
-            # Pick absolute best available audio stream (Opus 48k or AAC 256k)
-            'format': 'bestaudio/best',
+            # Pick absolute best available audio stream
+            'format': 'ba/b/best[acodec!=none]/18/best',
             'outtmpl': output_template,
             'writethumbnail': True,
             'quiet': True,
