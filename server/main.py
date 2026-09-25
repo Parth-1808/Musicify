@@ -79,25 +79,31 @@ def get_ffmpeg_binary() -> str:
     return bin_path or "ffmpeg"
 
 def get_best_stream_format(info: dict) -> Optional[dict]:
-    """Find the highest quality stream with an accessible URL"""
+    """Find the highest quality stream with an accessible URL and genuine audio track"""
     formats = info.get('formats', [])
     if not formats:
         return None
     
     usable = [
         f for f in formats 
-        if f.get('url') and (f.get('acodec') not in (None, 'none') or f.get('vcodec') not in (None, 'none'))
+        if f.get('url') and f.get('acodec') not in (None, 'none')
     ]
+    if not usable:
+        # Fallback to any format that has video and audio combined
+        usable = [
+            f for f in formats 
+            if f.get('url') and (f.get('acodec') not in (None, 'none') or f.get('vcodec') not in (None, 'none'))
+        ]
     if not usable:
         return None
     
     def score_format(f):
-        # Prefer audio-only streams
-        is_audio_only = 2 if (f.get('vcodec') in (None, 'none') and f.get('acodec') not in (None, 'none')) else 1
-        # Prefer known good audio itags if bitrates are similar
-        itag_bonus = 10 if str(f.get('format_id')) in ('251', '140', '18') else 0
+        # Audio-only stream gets top priority
+        is_audio_only = 2 if f.get('vcodec') in (None, 'none') else 1
+        # Itag priority bonus: 251=Opus 160k, 140=M4A 128k, 250=Opus 70k, 249=Opus 50k, 18=Combined 360p
+        itag_priority = {'251': 30, '140': 20, '250': 15, '249': 10, '18': 5}.get(str(f.get('format_id')), 0)
         bitrate = f.get('abr') or f.get('tbr') or 0
-        return (is_audio_only, itag_bonus, bitrate)
+        return (is_audio_only, itag_priority, bitrate)
     
     usable.sort(key=score_format)
     return usable[-1]
@@ -135,30 +141,29 @@ def has_usable_audio(info: Optional[dict]) -> bool:
         return False
     formats = info.get('formats', [])
     for f in formats:
-        if f.get('url') and (f.get('acodec') not in (None, 'none') or f.get('vcodec') not in (None, 'none')):
+        if f.get('url') and f.get('acodec') not in (None, 'none'):
             return True
     return False
 
 def extract_info_with_fallback(base_opts: dict, url: str, download: bool = False):
-    """Try extraction with multiple client strategies, with cookies and without cookies fallback"""
+    """Try extraction with fast, reliable client strategies and fast socket timeouts"""
     strategies = [
-        ['tv_embedded'],
-        None,
-        ['android_vr'],
+        ['default', '-android_sdkless'],
         ['android'],
-        ['web'],
-        ['ios']
+        ['android_vr'],
+        ['tv_embedded'],
+        None
     ]
     last_err = None
     fallback_info = None
     
+    # Priority: Cookies first if provided (vital for datacenter IPs), fallback to guest
+    cookie_options = [True] if (COOKIE_FILE_PATH.exists() and COOKIE_FILE_PATH.stat().st_size > 0) else [False]
+    
     for client in strategies:
-        cookie_options = [False]
-        if COOKIE_FILE_PATH.exists() and COOKIE_FILE_PATH.stat().st_size > 0:
-            cookie_options.append(True)
-        
         for use_cookies in cookie_options:
             opts = dict(base_opts)
+            opts['socket_timeout'] = 10
             if client is not None:
                 opts['extractor_args'] = {'youtube': {'player_client': client}}
             else:
