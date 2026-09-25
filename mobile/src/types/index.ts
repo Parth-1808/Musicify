@@ -38,12 +38,12 @@ export interface UserProfile {
 }
 
 export interface AudioQualityOption {
-  id: 'ultra_320k' | 'opus_256k' | 'flac_lossless';
+  id: 'ultra_320k';
   name: string;
   description: string;
   badge: string;
   tag: string;
-  icon: 'diamond' | 'flash' | 'disc';
+  icon: 'diamond';
 }
 
 export const QUALITY_OPTIONS: AudioQualityOption[] = [
