@@ -34,11 +34,10 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
   onSuccess,
 }) => {
   const { user } = useAuth();
-  const { downloadSongForOffline, refreshSongs, playSong } = useMusic();
+  const { refreshSongs, playSong, showToast } = useMusic();
 
   const [url, setUrl] = useState('');
-  const [selectedQuality, setSelectedQuality] = useState<AudioQualityOption>(QUALITY_OPTIONS[0]);
-  const [autoOffline, setAutoOffline] = useState(true);
+  const selectedQuality = QUALITY_OPTIONS[0];
 
   // Preview state
   const [loadingPreview, setLoadingPreview] = useState(false);
@@ -83,9 +82,9 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
 
     try {
       setIsDownloading(true);
-      setDownloadStep('Extracting audio & metadata at 320kbps...');
+      setDownloadStep('Extracting 320kbps Studio Master audio...');
 
-      // 1. Download & convert on backend and upload to Supabase
+      // 1. Download & convert on backend and upload to Supabase Cloud
       const result = await ApiService.downloadYouTubeAudio({
         url: url.trim(),
         quality: selectedQuality.id,
@@ -97,20 +96,15 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
         throw new Error('Audio extraction failed on backend.');
       }
 
-      let downloadedSong = result.song;
+      const downloadedSong = result.song;
 
-      // 2. If auto offline is enabled, cache locally to device
-      if (autoOffline) {
-        setDownloadStep('Caching locally for offline playback...');
-        await downloadSongForOffline(downloadedSong);
-      }
-
-      setDownloadStep('Adding to Musify library...');
+      setDownloadStep('Syncing to Cloud Library...');
       await refreshSongs();
+      showToast(`Saved "${downloadedSong.title}" to Cloud`, 'cloud-done');
 
       Alert.alert(
-        'Download Complete',
-        `"${downloadedSong.title}" is ready in ${selectedQuality.badge} quality.`,
+        'Saved to Cloud Library',
+        `"${downloadedSong.title}" is saved in your Cloud Library at 320kbps Studio Master quality.\n\nTo listen offline without internet, tap the 3-dots (⋮) on this track and choose "Download Song".`,
         [
           {
             text: 'Close',
@@ -131,7 +125,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
 
       if (onSuccess) onSuccess(downloadedSong);
     } catch (e: any) {
-      Alert.alert('Download Failed', e.message || 'Check backend server connection.');
+      Alert.alert('Save Failed', e.message || 'Check backend server connection.');
     } finally {
       setIsDownloading(false);
       setDownloadStep('');
@@ -219,75 +213,34 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                 </GlassCard>
               )}
 
-              {/* Audio Quality Selector */}
+              {/* Single Premium Studio Master Quality Preset */}
               <Text style={styles.sectionLabel}>AUDIO QUALITY PRESET</Text>
-              <View style={styles.qualityContainer}>
-                {QUALITY_OPTIONS.map((opt) => {
-                  const isSelected = selectedQuality.id === opt.id;
-                  const iconName =
-                    opt.icon === 'diamond'
-                      ? 'diamond-outline'
-                      : opt.icon === 'flash'
-                      ? 'flash-outline'
-                      : 'disc-outline';
-
-                  return (
-                    <TouchableOpacity
-                      key={opt.id}
-                      activeOpacity={0.8}
-                      onPress={() => setSelectedQuality(opt)}
-                      style={[
-                        styles.qualityCard,
-                        isSelected && styles.qualityCardSelected,
-                      ]}
-                    >
-                      <View style={styles.qualityHeader}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                          <Ionicons
-                            name={iconName as any}
-                            size={16}
-                            color={isSelected ? THEME.colors.spotifyGreen : THEME.colors.textSecondary}
-                          />
-                          <Text style={[styles.qualityName, isSelected && styles.qualityNameSelected]}>
-                            {opt.name}
-                          </Text>
-                        </View>
-                        <View
-                          style={[
-                            styles.badgePill,
-                            isSelected && { backgroundColor: THEME.colors.spotifyGreen },
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.badgePillText,
-                              isSelected && { color: '#08090D', fontWeight: '800' },
-                            ]}
-                          >
-                            {opt.badge}
-                          </Text>
-                        </View>
-                      </View>
-                      <Text style={styles.qualityDesc}>{opt.description}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
+              <View style={styles.qualityCardSingle}>
+                <View style={styles.qualityHeader}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Ionicons name="diamond" size={17} color={THEME.colors.spotifyGreen} />
+                    <Text style={styles.qualityNameSelected}>320 kbps Ultra Studio Master</Text>
+                  </View>
+                  <View style={styles.badgePillGold}>
+                    <Text style={styles.badgePillGoldText}>320K MP3 @ 48kHz</Text>
+                  </View>
+                </View>
+                <Text style={styles.qualityDesc}>
+                  High-bitrate studio master audio encoded at 48kHz with full dynamic range. Exceeds standard Spotify Free (160k) and matches Spotify Premium.
+                </Text>
               </View>
 
-              {/* Offline Toggle */}
-              <View style={styles.toggleRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.toggleTitle}>Save for Offline Playback</Text>
-                  <Text style={styles.toggleSub}>
-                    Download high-quality file directly to your phone storage
+              {/* Cloud Sync Information Notice */}
+              <View style={styles.cloudNoticeRow}>
+                <View style={styles.cloudNoticeIconBox}>
+                  <Ionicons name="cloud-upload-outline" size={20} color={THEME.colors.spotifyGreen} />
+                </View>
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={styles.cloudNoticeTitle}>Saved to Cloud Library First</Text>
+                  <Text style={styles.cloudNoticeSub}>
+                    Just like Spotify, tracks are saved to your cloud library to stream on any device. Tap the 3-dots (⋮) anytime to download to local cache.
                   </Text>
                 </View>
-                <Switch
-                  value={autoOffline}
-                  onValueChange={setAutoOffline}
-                  trackColor={{ false: '#333', true: THEME.colors.spotifyGreen }}
-                  thumbColor="#FFFFFF"
-                />
               </View>
 
               {/* Download Progress Message */}
@@ -298,14 +251,14 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                 </View>
               )}
 
-              {/* Download Action Button */}
+              {/* Save to Cloud Action Button */}
               <GlassButton
-                title={isDownloading ? 'Downloading Audio...' : 'Download & Sync Track'}
+                title={isDownloading ? 'Saving to Cloud Library...' : 'Save to Cloud Library'}
                 onPress={handleDownload}
                 loading={isDownloading}
                 variant="primary"
                 size="lg"
-                icon={<Ionicons name="cloud-download-outline" size={20} color="#08090D" />}
+                icon={<Ionicons name="cloud-upload-outline" size={20} color="#08090D" />}
                 style={{ marginTop: 14, marginBottom: 20 }}
               />
             </ScrollView>
@@ -438,59 +391,73 @@ const styles = StyleSheet.create({
     borderRadius: THEME.borderRadius.md,
     padding: 12,
   },
-  qualityCardSelected: {
-    borderColor: THEME.colors.spotifyGreen,
+  qualityCardSingle: {
     backgroundColor: 'rgba(29, 185, 84, 0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(29, 185, 84, 0.4)',
+    borderTopColor: 'rgba(30, 215, 96, 0.65)',
+    borderRadius: THEME.borderRadius.md,
+    padding: 14,
+    marginBottom: 16,
   },
   qualityHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  qualityName: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: THEME.colors.textPrimary,
+    marginBottom: 6,
   },
   qualityNameSelected: {
-    color: THEME.colors.spotifyGreen,
+    fontSize: 15,
+    fontWeight: '800',
+    color: THEME.colors.textPrimary,
   },
-  badgePill: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  badgePillGold: {
+    backgroundColor: 'rgba(29, 185, 84, 0.25)',
+    borderWidth: 1,
+    borderColor: THEME.colors.spotifyGreen,
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
   },
-  badgePillText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: THEME.colors.textPrimary,
+  badgePillGoldText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: THEME.colors.spotifyGreenLight,
+    letterSpacing: 0.5,
   },
   qualityDesc: {
     fontSize: 12,
     color: THEME.colors.textSecondary,
-    lineHeight: 16,
+    lineHeight: 17,
   },
-  toggleRow: {
+  cloudNoticeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: THEME.colors.glassBorder,
-    marginBottom: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: THEME.borderRadius.md,
+    padding: 12,
+    marginBottom: 12,
   },
-  toggleTitle: {
-    fontSize: 14,
+  cloudNoticeIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(29, 185, 84, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cloudNoticeTitle: {
+    fontSize: 13,
     fontWeight: '700',
     color: THEME.colors.textPrimary,
   },
-  toggleSub: {
-    fontSize: 12,
+  cloudNoticeSub: {
+    fontSize: 11,
     color: THEME.colors.textSecondary,
     marginTop: 2,
-    maxWidth: '90%',
+    lineHeight: 15,
   },
   downloadProgressCard: {
     flexDirection: 'row',

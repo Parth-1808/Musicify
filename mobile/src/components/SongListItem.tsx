@@ -38,6 +38,7 @@ export const SongListItem: React.FC<SongListItemProps> = ({
     downloadSongForOffline,
     removeSongOffline,
     deleteSongEverywhere,
+    showToast,
   } = useMusic();
 
   const [menuVisible, setMenuVisible] = useState(false);
@@ -53,19 +54,20 @@ export const SongListItem: React.FC<SongListItemProps> = ({
   const handleDownload = async () => {
     try {
       setDownloading(true);
+      showToast(`Downloading "${song.title}"...`, 'arrow-down-circle');
       await downloadSongForOffline(song);
-      Alert.alert('Saved Offline', `"${song.title}" is now available offline.`);
+      showToast(`Downloaded "${song.title}" to device`, 'checkmark-circle');
+      setMenuVisible(false);
     } catch (e: any) {
       Alert.alert('Download Error', e.message || 'Failed to download offline.');
     } finally {
       setDownloading(false);
-      setMenuVisible(false);
     }
   };
 
   const handleRemoveOffline = async () => {
     await removeSongOffline(song.id);
-    Alert.alert('Removed', 'Removed from offline storage.');
+    showToast(`Removed from device storage`, 'trash');
     setMenuVisible(false);
   };
 
@@ -268,8 +270,15 @@ export const SongListItem: React.FC<SongListItemProps> = ({
               {/* 4. Download / Remove Offline */}
               {song.isOffline ? (
                 <TouchableOpacity style={styles.menuItem} onPress={handleRemoveOffline}>
-                  <Ionicons name="trash-outline" size={20} color={THEME.colors.textSecondary} />
-                  <Text style={styles.menuItemText}>Remove Offline Cache</Text>
+                  <Ionicons name="arrow-down-circle" size={22} color={THEME.colors.spotifyGreen} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.menuItemText, { color: THEME.colors.spotifyGreen }]}>
+                      Downloaded to Device
+                    </Text>
+                    <Text style={styles.menuItemSubText}>
+                      Saved in permanent cache. Tap to remove
+                    </Text>
+                  </View>
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity
@@ -281,14 +290,19 @@ export const SongListItem: React.FC<SongListItemProps> = ({
                     <ActivityIndicator size="small" color={THEME.colors.spotifyGreen} />
                   ) : (
                     <Ionicons
-                      name="cloud-download-outline"
-                      size={20}
+                      name="arrow-down-circle-outline"
+                      size={22}
                       color={THEME.colors.spotifyGreen}
                     />
                   )}
-                  <Text style={[styles.menuItemText, { color: THEME.colors.spotifyGreen }]}>
-                    {downloading ? 'Downloading...' : 'Save for Offline Playback'}
-                  </Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.menuItemText, { color: THEME.colors.spotifyGreen }]}>
+                      {downloading ? 'Downloading to Cache...' : 'Download Song'}
+                    </Text>
+                    <Text style={styles.menuItemSubText}>
+                      Save locally to play offline without internet
+                    </Text>
+                  </View>
                 </TouchableOpacity>
               )}
 
@@ -485,5 +499,10 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: THEME.colors.textPrimary,
     fontWeight: '500',
+  },
+  menuItemSubText: {
+    fontSize: 11,
+    color: THEME.colors.textMuted,
+    marginTop: 2,
   },
 });

@@ -47,10 +47,10 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
   // Filter songs based on active tab & search query
   const getFilteredSongs = (): Song[] => {
     let list: Song[] = [];
-    if (activeTab === 'all') {
-      list = songs;
-    } else if (activeTab === 'offline') {
+    if (isOfflineMode || activeTab === 'offline') {
       list = offlineSongs;
+    } else if (activeTab === 'all') {
+      list = songs;
     } else if (activeTab === 'favorites') {
       list = songs.filter((s) => favorites.includes(s.id) || s.is_favorite);
     }
@@ -308,16 +308,16 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
                 color={THEME.colors.textMuted}
               />
               <Text style={styles.emptyTitle}>
-                {activeTab === 'offline'
-                  ? 'No Offline Songs'
+                {isOfflineMode || activeTab === 'offline'
+                  ? 'No Downloaded Songs Yet'
                   : activeTab === 'favorites'
                   ? 'No Favorites Yet'
                   : 'No Songs Found'}
               </Text>
               <Text style={styles.emptyText}>
-                {activeTab === 'offline'
-                  ? 'Tap "Save Offline" on any track to listen without internet!'
-                  : 'Paste a YouTube video link to download high-fidelity audio.'}
+                {isOfflineMode || activeTab === 'offline'
+                  ? 'Tap the three dots (⋮) on any song and select "Download Song" to save it for offline listening.'
+                  : 'Paste a YouTube video link to add high-fidelity audio to your cloud library.'}
               </Text>
             </View>
           }

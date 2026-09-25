@@ -93,6 +93,7 @@ export const FullPlayerModal: React.FC<FullPlayerModalProps> = ({
     isSleepTimerEndOfTrack,
     eqPreset,
     setEqPreset,
+    showToast,
   } = useMusic();
 
   const [isSeeking, setIsSeeking] = useState(false);
@@ -133,12 +134,13 @@ export const FullPlayerModal: React.FC<FullPlayerModalProps> = ({
   const handleToggleOffline = async () => {
     if (currentSong.isOffline) {
       await removeSongOffline(currentSong.id);
-      Alert.alert('Removed', 'Removed song from offline storage.');
+      showToast('Removed from device storage', 'trash');
     } else {
       try {
         setDownloading(true);
+        showToast(`Downloading "${currentSong.title}"...`, 'arrow-down-circle');
         await downloadSongForOffline(currentSong);
-        Alert.alert('Saved Offline', 'Song downloaded for offline listening.');
+        showToast(`Downloaded "${currentSong.title}" to device`, 'checkmark-circle');
       } catch (e: any) {
         Alert.alert('Download Error', e.message || 'Could not download offline.');
       } finally {

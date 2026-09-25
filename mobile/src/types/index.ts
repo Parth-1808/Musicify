@@ -49,28 +49,12 @@ export interface AudioQualityOption {
 export const QUALITY_OPTIONS: AudioQualityOption[] = [
   {
     id: 'ultra_320k',
-    name: '320 kbps Ultra Hi-Fi',
-    description: 'High-bitrate MP3 encoded with full dynamic range. Exceeds standard Spotify Free (160k) and matches Spotify Premium.',
-    badge: '320K MP3',
-    tag: 'Ultra Quality',
+    name: '320 kbps Ultra Studio Master',
+    description: '48kHz CBR Master encoded at maximum LAME precision with full dynamic range. Exceeds standard Spotify Free (160k) and matches Spotify Premium.',
+    badge: '320K MP3 @ 48kHz',
+    tag: 'Ultra Hi-Fi',
     icon: 'diamond',
   },
-  {
-    id: 'opus_256k',
-    name: '256 kbps Studio Opus',
-    description: 'Pristine modern codec with transparent acoustic clarity and low artifacting.',
-    badge: 'OPUS HD',
-    tag: 'Studio Master',
-    icon: 'flash',
-  },
-  {
-    id: 'flac_lossless',
-    name: 'Lossless FLAC Master',
-    description: 'Bit-perfect uncompressed audio container for true audiophiles.',
-    badge: 'FLAC',
-    tag: 'Audiophile Lossless',
-    icon: 'disc',
-  }
 ];
 
 export interface SleepTimerOption {

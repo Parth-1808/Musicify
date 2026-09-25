@@ -1,16 +1,18 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import { Song, Playlist } from '../types';
 
 const OFFLINE_SONGS_KEY = 'MUSIFY_OFFLINE_SONGS_CACHE';
 const PLAYLISTS_KEY = 'MUSIFY_LOCAL_PLAYLISTS';
 const FAVORITES_KEY = 'MUSIFY_FAVORITES';
 
-const BASE_MUSIC_DIR = `${FileSystem.documentDirectory}musify/`;
+const BASE_MUSIC_DIR = `${FileSystem.documentDirectory || ''}musify/`;
 const SONGS_DIR = `${BASE_MUSIC_DIR}songs/`;
 const ARTWORK_DIR = `${BASE_MUSIC_DIR}artwork/`;
 
 async function ensureDirectories() {
+  if (Platform.OS === 'web' || !FileSystem.documentDirectory) return;
   const dirs = [BASE_MUSIC_DIR, SONGS_DIR, ARTWORK_DIR];
   for (const dir of dirs) {
     const dirInfo = await FileSystem.getInfoAsync(dir);
@@ -30,8 +32,12 @@ export const StorageService = {
       const data = await AsyncStorage.getItem(OFFLINE_SONGS_KEY);
       if (!data) return [];
       const parsed: Song[] = JSON.parse(data);
+
+      if (Platform.OS === 'web') {
+        return parsed.map((s) => ({ ...s, isOffline: true }));
+      }
       
-      // Verify files exist
+      // Verify files exist on native filesystem
       const validSongs: Song[] = [];
       for (const song of parsed) {
         if (song.localAudioUri) {
@@ -52,6 +58,21 @@ export const StorageService = {
     song: Song,
     onProgress?: (progress: number) => void
   ): Promise<Song> {
+    if (Platform.OS === 'web') {
+      const updatedSong: Song = {
+        ...song,
+        localAudioUri: song.audio_url,
+        localArtworkUri: song.artwork_url,
+        isOffline: true,
+      };
+      const existing = await this.getOfflineSongs();
+      const filtered = existing.filter((s) => s.id !== song.id);
+      filtered.unshift(updatedSong);
+      await AsyncStorage.setItem(OFFLINE_SONGS_KEY, JSON.stringify(filtered));
+      if (onProgress) onProgress(1);
+      return updatedSong;
+    }
+
     await ensureDirectories();
 
     const fileExt = song.format || 'mp3';
@@ -108,11 +129,13 @@ export const StorageService = {
       const existing = await this.getOfflineSongs();
       const song = existing.find((s) => s.id === songId);
 
-      if (song?.localAudioUri) {
-        await FileSystem.deleteAsync(song.localAudioUri, { idempotent: true });
-      }
-      if (song?.localArtworkUri && song.localArtworkUri.startsWith(ARTWORK_DIR)) {
-        await FileSystem.deleteAsync(song.localArtworkUri, { idempotent: true });
+      if (Platform.OS !== 'web') {
+        if (song?.localAudioUri) {
+          await FileSystem.deleteAsync(song.localAudioUri, { idempotent: true });
+        }
+        if (song?.localArtworkUri && song.localArtworkUri.startsWith(ARTWORK_DIR)) {
+          await FileSystem.deleteAsync(song.localArtworkUri, { idempotent: true });
+        }
       }
 
       const updated = existing.filter((s) => s.id !== songId);

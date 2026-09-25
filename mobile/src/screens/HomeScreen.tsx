@@ -247,10 +247,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         </View>
       )}
 
-      {/* Recently Added Section */}
+      {/* Recently Added Section / Offline Tracks */}
       <View style={styles.sectionContainer}>
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>Recently Added</Text>
+          <Text style={styles.sectionTitle}>
+            {isOfflineMode ? 'Downloaded Offline Tracks' : 'Recently Added'}
+          </Text>
           <TouchableOpacity onPress={onNavigateToLibrary}>
             <Text style={styles.seeAllText}>See all ({songs.length})</Text>
           </TouchableOpacity>
@@ -258,10 +260,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
         {songs.length === 0 ? (
           <GlassCard style={styles.emptyCard} borderRadius={THEME.borderRadius.lg}>
-            <Ionicons name="musical-notes" size={48} color={THEME.colors.textMuted} />
-            <Text style={styles.emptyTitle}>Your library is empty</Text>
+            <Ionicons
+              name={isOfflineMode ? 'cloud-offline-outline' : 'musical-notes'}
+              size={48}
+              color={THEME.colors.textMuted}
+            />
+            <Text style={styles.emptyTitle}>
+              {isOfflineMode ? 'No Downloaded Songs' : 'Your library is empty'}
+            </Text>
             <Text style={styles.emptySubtitle}>
-              Tap the banner above to paste your first YouTube music link!
+              {isOfflineMode
+                ? 'Turn off offline mode or download songs using the three-dots (⋮) menu to listen offline without internet.'
+                : 'Tap the banner above to paste your first YouTube music link!'}
             </Text>
           </GlassCard>
         ) : (
