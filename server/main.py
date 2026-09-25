@@ -117,12 +117,9 @@ def get_video_info(req: VideoInfoRequest):
         'no_warnings': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['ios', 'android', 'mweb', 'web']
+                'player_client': ['android']
             }
         },
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
-        }
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -208,18 +205,15 @@ async def download_track(req: DownloadRequest):
 
         ydl_opts = {
             # Pick absolute best available audio stream (Opus 48k or AAC 256k)
-            'format': 'bestaudio[acodec=opus]/bestaudio[acodec=mp4a.40.2]/bestaudio/best',
+            'format': 'bestaudio/best',
             'outtmpl': output_template,
             'writethumbnail': True,
             'quiet': True,
             'no_warnings': True,
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['ios', 'android', 'mweb', 'web']
+                    'player_client': ['android']
                 }
-            },
-            'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
             },
             'postprocessors': [
                 {
