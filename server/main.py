@@ -146,58 +146,67 @@ def has_usable_audio(info: Optional[dict]) -> bool:
     return False
 
 def extract_info_with_fallback(base_opts: dict, url: str, download: bool = False):
-    """Try extraction with visionos and modern clients, fast timeouts, and JS runtime support"""
-    strategies = [
-        ['visionos'],
-        ['default', '-android_sdkless'],
-        ['android_vr'],
-        ['android'],
-        ['tv_embedded'],
-        None
+    """Try extraction with explicit prioritized strategies starting with ultra-fast visionos"""
+    has_cookies = COOKIE_FILE_PATH.exists() and COOKIE_FILE_PATH.stat().st_size > 0
+    node_bin = shutil.which("node") or shutil.which("nodejs")
+
+    plans = [
+        # 1. visionos without cookies: fastest, completely bypasses SABR & bot detection
+        {"client": ['visionos'], "use_cookies": False},
+        # 2. visionos with cookies
+        {"client": ['visionos'], "use_cookies": True} if has_cookies else None,
+        # 3. default -android_sdkless with cookies
+        {"client": ['default', '-android_sdkless'], "use_cookies": True} if has_cookies else None,
+        # 4. android client with cookies
+        {"client": ['android'], "use_cookies": True} if has_cookies else None,
+        # 5. android_vr client with cookies
+        {"client": ['android_vr'], "use_cookies": True} if has_cookies else None,
+        # 6. tv_embedded guest fallback
+        {"client": ['tv_embedded'], "use_cookies": False},
+        # 7. Default yt-dlp client
+        {"client": None, "use_cookies": has_cookies}
     ]
+    # Filter out None entries
+    plans = [p for p in plans if p is not None]
+
     last_err = None
     fallback_info = None
-    
-    node_bin = shutil.which("node") or shutil.which("nodejs")
-    
-    # Try with cookies if provided, fallback to unauthenticated guest
-    cookie_options = [True, False] if (COOKIE_FILE_PATH.exists() and COOKIE_FILE_PATH.stat().st_size > 0) else [False]
-    
-    for client in strategies:
-        for use_cookies in cookie_options:
-            opts = dict(base_opts)
-            opts['socket_timeout'] = 10
-            if node_bin:
-                opts['js_runtimes'] = {'node': {'path': node_bin}}
-            
-            if client is not None:
-                opts['extractor_args'] = {'youtube': {'player_client': client}}
-            else:
-                opts.pop('extractor_args', None)
-            
-            if download:
-                opts.setdefault('format', 'ba/b/best[acodec!=none]/18/best')
-            else:
-                opts.pop('format', None)
-                opts['ignore_no_formats_error'] = True
-            
-            if use_cookies and COOKIE_FILE_PATH.exists() and COOKIE_FILE_PATH.stat().st_size > 0:
-                opts['cookiefile'] = str(COOKIE_FILE_PATH)
-            else:
-                opts.pop('cookiefile', None)
-            
-            try:
-                with yt_dlp.YoutubeDL(opts) as ydl:
-                    info = ydl.extract_info(url, download=download)
-                    if info:
-                        if download or has_usable_audio(info):
-                            return info
-                        elif fallback_info is None:
-                            fallback_info = info
-            except Exception as e:
-                last_err = e
-                continue
-    
+
+    for plan in plans:
+        opts = dict(base_opts)
+        opts['socket_timeout'] = 8
+        if node_bin:
+            opts['js_runtimes'] = {'node': {'path': node_bin}}
+        
+        client = plan['client']
+        if client is not None:
+            opts['extractor_args'] = {'youtube': {'player_client': client}}
+        else:
+            opts.pop('extractor_args', None)
+
+        if download:
+            opts.setdefault('format', 'ba/b/best[acodec!=none]/18/best')
+        else:
+            opts.pop('format', None)
+            opts['ignore_no_formats_error'] = True
+
+        if plan['use_cookies'] and has_cookies:
+            opts['cookiefile'] = str(COOKIE_FILE_PATH)
+        else:
+            opts.pop('cookiefile', None)
+
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=download)
+                if info:
+                    if download or has_usable_audio(info):
+                        return info
+                    elif fallback_info is None:
+                        fallback_info = info
+        except Exception as e:
+            last_err = e
+            continue
+
     if fallback_info:
         return fallback_info
 
