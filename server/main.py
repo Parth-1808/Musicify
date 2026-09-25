@@ -173,40 +173,40 @@ def get_video_info(req: VideoInfoRequest):
     }
     try:
         info = extract_info_with_fallback(ydl_opts, req.url, download=False)
-            if not info:
-                raise HTTPException(status_code=400, detail="Could not extract video info")
-            
-            raw_title = info.get('title', 'Unknown Title')
-            artist, title = clean_title(raw_title)
-            if info.get('artist'):
-                artist = info.get('artist')
-            elif info.get('uploader') and artist == "Various Artists":
-                artist = info.get('uploader')
+        if not info:
+            raise HTTPException(status_code=400, detail="Could not extract video info")
+        
+        raw_title = info.get('title', 'Unknown Title')
+        artist, title = clean_title(raw_title)
+        if info.get('artist'):
+            artist = info.get('artist')
+        elif info.get('uploader') and artist == "Various Artists":
+            artist = info.get('uploader')
 
-            # Extract best thumbnail
-            thumbnails = info.get('thumbnails', [])
-            best_thumb = info.get('thumbnail')
-            if thumbnails:
-                # Get the highest resolution thumbnail
-                best_thumb = thumbnails[-1].get('url', best_thumb)
+        # Extract best thumbnail
+        thumbnails = info.get('thumbnails', [])
+        best_thumb = info.get('thumbnail')
+        if thumbnails:
+            # Get the highest resolution thumbnail
+            best_thumb = thumbnails[-1].get('url', best_thumb)
 
-            duration = info.get('duration', 0)
-            mins = duration // 60
-            secs = duration % 60
-            duration_formatted = f"{mins}:{secs:02d}"
+        duration = info.get('duration', 0)
+        mins = duration // 60
+        secs = duration % 60
+        duration_formatted = f"{mins}:{secs:02d}"
 
-            return {
-                "id": info.get('id'),
-                "title": title,
-                "artist": artist,
-                "raw_title": raw_title,
-                "duration": duration,
-                "duration_formatted": duration_formatted,
-                "thumbnail": best_thumb,
-                "view_count": info.get('view_count', 0),
-                "channel": info.get('uploader', 'Unknown Channel'),
-                "url": req.url
-            }
+        return {
+            "id": info.get('id'),
+            "title": title,
+            "artist": artist,
+            "raw_title": raw_title,
+            "duration": duration,
+            "duration_formatted": duration_formatted,
+            "thumbnail": best_thumb,
+            "view_count": info.get('view_count', 0),
+            "channel": info.get('uploader', 'Unknown Channel'),
+            "url": req.url
+        }
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to fetch YouTube details: {str(e)}")
 
