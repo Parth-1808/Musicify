@@ -1,0 +1,15 @@
+node_modules/
+.expo/
+dist/
+web-build/
+*.log
+.DS_Store
+
+# Backend
+server/downloads/
+server/artwork/
+server/metadata/
+server/temp/
+__pycache__/
+*.pyc
+.env

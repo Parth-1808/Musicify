@@ -1,0 +1,25 @@
+{
+  "name": "musify-workspace",
+  "version": "1.0.0",
+  "description": "Musify - Ultra Hi-Fi YouTube Music Player with Supabase Cloud & Offline Support",
+  "scripts": {
+    "start": "cd mobile && npx expo start",
+    "web": "cd mobile && npx expo start --web",
+    "android": "cd mobile && npx expo start --android",
+    "ios": "cd mobile && npx expo start --ios",
+    "server": "cd server && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload",
+    "backend": "cd server && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+  },
+  "keywords": [
+    "music",
+    "player",
+    "spotify",
+    "youtube-downloader",
+    "supabase",
+    "expo",
+    "react-native",
+    "glassmorphism"
+  ],
+  "author": "",
+  "license": "MIT"
+}
