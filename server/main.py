@@ -273,6 +273,43 @@ def health_check():
         "supabase_configured": bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)
     }
 
+@app.get("/api/test-ytdl")
+def test_ytdl(client: str = "android", use_cookies: bool = True):
+    """Test a single client extractor with strict 4s timeout for instantaneous diagnosis"""
+    import time
+    t0 = time.time()
+    opts = {
+        'skip_download': True,
+        'quiet': True,
+        'no_warnings': True,
+        'ignore_no_formats_error': True,
+        'socket_timeout': 4,
+        'extractor_args': {'youtube': {'player_client': [client]}}
+    }
+    if use_cookies and COOKIE_FILE_PATH.exists() and COOKIE_FILE_PATH.stat().st_size > 0:
+        opts['cookiefile'] = str(COOKIE_FILE_PATH)
+    
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info('https://www.youtube.com/watch?v=3jnKPfL8Xhg', download=False)
+            audio_fmts = [f.get('format_id') for f in info.get('formats', []) if f.get('url') and (f.get('acodec') != 'none' or f.get('vcodec') != 'none')]
+            all_fmts = [f.get('format_id') for f in info.get('formats', [])]
+            return {
+                "client": client,
+                "use_cookies": use_cookies,
+                "elapsed": round(time.time() - t0, 2),
+                "title": info.get('title'),
+                "audio_formats": audio_fmts,
+                "all_formats": all_fmts
+            }
+    except Exception as e:
+        return {
+            "client": client,
+            "use_cookies": use_cookies,
+            "elapsed": round(time.time() - t0, 2),
+            "error": str(e)
+        }
+
 @app.get("/api/diag")
 def diagnostic_check(url: str = "https://www.youtube.com/watch?v=3jnKPfL8Xhg"):
     """Check cookies, ffmpeg, and available YouTube stream formats on the live host"""
