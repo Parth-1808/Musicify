@@ -146,24 +146,30 @@ def has_usable_audio(info: Optional[dict]) -> bool:
     return False
 
 def extract_info_with_fallback(base_opts: dict, url: str, download: bool = False):
-    """Try extraction with fast, reliable client strategies and fast socket timeouts"""
+    """Try extraction with visionos and modern clients, fast timeouts, and JS runtime support"""
     strategies = [
+        ['visionos'],
         ['default', '-android_sdkless'],
-        ['android'],
         ['android_vr'],
+        ['android'],
         ['tv_embedded'],
         None
     ]
     last_err = None
     fallback_info = None
     
-    # Priority: Cookies first if provided (vital for datacenter IPs), fallback to guest
-    cookie_options = [True] if (COOKIE_FILE_PATH.exists() and COOKIE_FILE_PATH.stat().st_size > 0) else [False]
+    node_bin = shutil.which("node") or shutil.which("nodejs")
+    
+    # Try with cookies if provided, fallback to unauthenticated guest
+    cookie_options = [True, False] if (COOKIE_FILE_PATH.exists() and COOKIE_FILE_PATH.stat().st_size > 0) else [False]
     
     for client in strategies:
         for use_cookies in cookie_options:
             opts = dict(base_opts)
             opts['socket_timeout'] = 10
+            if node_bin:
+                opts['js_runtimes'] = {'node': {'path': node_bin}}
+            
             if client is not None:
                 opts['extractor_args'] = {'youtube': {'player_client': client}}
             else:
