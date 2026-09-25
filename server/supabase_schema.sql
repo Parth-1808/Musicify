@@ -1,7 +1,11 @@
--- Musify Supabase Database Schema & Storage Configuration
+-- ============================================================================
+-- MUSIFY SUPABASE FULL DATABASE SCHEMA & STORAGE SETUP
+-- Run this entire script in your Supabase project's SQL Editor (SQL tab).
+-- ============================================================================
 
 -- 1. Enable UUID Extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- 2. User Profiles Table
 CREATE TABLE IF NOT EXISTS public.profiles (
@@ -13,34 +17,34 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
--- 3. Songs Table (Stores downloaded YouTube tracks in high-fidelity)
+-- 3. Songs Table (High-Fidelity Audio Tracks)
 CREATE TABLE IF NOT EXISTS public.songs (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     user_id UUID REFERENCES auth.users ON DELETE CASCADE NOT NULL,
     title TEXT NOT NULL,
     artist TEXT DEFAULT 'Unknown Artist',
-    album TEXT DEFAULT 'Single',
-    duration INT DEFAULT 0, -- Duration in seconds
-    audio_url TEXT NOT NULL, -- Supabase Storage Public URL or external URL
-    artwork_url TEXT, -- Supabase Storage Public URL for cover art
-    source_url TEXT, -- Original YouTube URL
+    album TEXT DEFAULT 'Musify',
+    duration INT DEFAULT 0, -- in seconds
+    audio_url TEXT NOT NULL, -- Public CDN URL to audio file
+    artwork_url TEXT, -- Public CDN URL to cover art
+    source_url TEXT, -- Original YouTube link
     source_id TEXT, -- YouTube Video ID
-    bitrate TEXT DEFAULT '320kbps', -- Audio bitrate (e.g. 320kbps, 256kbps, Lossless)
-    format TEXT DEFAULT 'mp3', -- Audio format (mp3, opus, flac)
-    play_count INT DEFAULT 0, -- Track listening count
+    bitrate TEXT DEFAULT '320kbps',
+    format TEXT DEFAULT 'mp3',
+    play_count INT DEFAULT 0,
     last_played_at TIMESTAMP WITH TIME ZONE,
     is_favorite BOOLEAN DEFAULT FALSE,
-    file_size BIGINT DEFAULT 0, -- Size in bytes
+    file_size BIGINT DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
 -- 4. Playlists Table
 CREATE TABLE IF NOT EXISTS public.playlists (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     user_id UUID REFERENCES auth.users ON DELETE CASCADE NOT NULL,
     name TEXT NOT NULL,
-    description TEXT,
+    description TEXT DEFAULT '',
     cover_url TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
@@ -48,7 +52,7 @@ CREATE TABLE IF NOT EXISTS public.playlists (
 
 -- 5. Playlist Songs Association Table
 CREATE TABLE IF NOT EXISTS public.playlist_songs (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     playlist_id UUID REFERENCES public.playlists(id) ON DELETE CASCADE NOT NULL,
     song_id UUID REFERENCES public.songs(id) ON DELETE CASCADE NOT NULL,
     position INT DEFAULT 0,
@@ -56,16 +60,16 @@ CREATE TABLE IF NOT EXISTS public.playlist_songs (
     UNIQUE(playlist_id, song_id)
 );
 
--- 6. Listening History / Analytics Table (To track detailed stats)
+-- 6. Listening History / Analytics Table
 CREATE TABLE IF NOT EXISTS public.listening_history (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     user_id UUID REFERENCES auth.users ON DELETE CASCADE NOT NULL,
     song_id UUID REFERENCES public.songs(id) ON DELETE CASCADE NOT NULL,
     listened_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
     duration_played INT DEFAULT 0
 );
 
--- 7. Indexes for High-Performance Queries
+-- 7. High-Performance Indexes
 CREATE INDEX IF NOT EXISTS idx_songs_user_id ON public.songs(user_id);
 CREATE INDEX IF NOT EXISTS idx_songs_play_count ON public.songs(play_count DESC);
 CREATE INDEX IF NOT EXISTS idx_songs_is_favorite ON public.songs(is_favorite);
@@ -80,33 +84,52 @@ ALTER TABLE public.playlists ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.playlist_songs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.listening_history ENABLE ROW LEVEL SECURITY;
 
--- 9. RLS Policies (Users can only manage their own data)
+-- 9. Row Level Security Policies
+-- Profiles Policies
+DROP POLICY IF EXISTS "Users can view own profile" ON public.profiles;
 CREATE POLICY "Users can view own profile" ON public.profiles
     FOR SELECT USING (auth.uid() = id);
+
+DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
 CREATE POLICY "Users can update own profile" ON public.profiles
     FOR UPDATE USING (auth.uid() = id);
 
 -- Songs Policies
+DROP POLICY IF EXISTS "Users can view own songs" ON public.songs;
 CREATE POLICY "Users can view own songs" ON public.songs
     FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can insert own songs" ON public.songs;
 CREATE POLICY "Users can insert own songs" ON public.songs
     FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can update own songs" ON public.songs;
 CREATE POLICY "Users can update own songs" ON public.songs
     FOR UPDATE USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can delete own songs" ON public.songs;
 CREATE POLICY "Users can delete own songs" ON public.songs
     FOR DELETE USING (auth.uid() = user_id);
 
 -- Playlists Policies
+DROP POLICY IF EXISTS "Users can view own playlists" ON public.playlists;
 CREATE POLICY "Users can view own playlists" ON public.playlists
     FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can create own playlists" ON public.playlists;
 CREATE POLICY "Users can create own playlists" ON public.playlists
     FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can update own playlists" ON public.playlists;
 CREATE POLICY "Users can update own playlists" ON public.playlists
     FOR UPDATE USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can delete own playlists" ON public.playlists;
 CREATE POLICY "Users can delete own playlists" ON public.playlists
     FOR DELETE USING (auth.uid() = user_id);
 
 -- Playlist Songs Policies
+DROP POLICY IF EXISTS "Users can view own playlist songs" ON public.playlist_songs;
 CREATE POLICY "Users can view own playlist songs" ON public.playlist_songs
     FOR SELECT USING (
         EXISTS (
@@ -115,6 +138,8 @@ CREATE POLICY "Users can view own playlist songs" ON public.playlist_songs
             AND playlists.user_id = auth.uid()
         )
     );
+
+DROP POLICY IF EXISTS "Users can insert into own playlists" ON public.playlist_songs;
 CREATE POLICY "Users can insert into own playlists" ON public.playlist_songs
     FOR INSERT WITH CHECK (
         EXISTS (
@@ -123,6 +148,8 @@ CREATE POLICY "Users can insert into own playlists" ON public.playlist_songs
             AND playlists.user_id = auth.uid()
         )
     );
+
+DROP POLICY IF EXISTS "Users can delete from own playlists" ON public.playlist_songs;
 CREATE POLICY "Users can delete from own playlists" ON public.playlist_songs
     FOR DELETE USING (
         EXISTS (
@@ -133,8 +160,11 @@ CREATE POLICY "Users can delete from own playlists" ON public.playlist_songs
     );
 
 -- Listening History Policies
+DROP POLICY IF EXISTS "Users can view own history" ON public.listening_history;
 CREATE POLICY "Users can view own history" ON public.listening_history
     FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can insert own history" ON public.listening_history;
 CREATE POLICY "Users can insert own history" ON public.listening_history
     FOR INSERT WITH CHECK (auth.uid() = user_id);
 
@@ -143,7 +173,8 @@ CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
     INSERT INTO public.profiles (id, email, display_name)
-    VALUES (new.id, new.email, split_part(new.email, '@', 1));
+    VALUES (new.id, new.email, split_part(new.email, '@', 1))
+    ON CONFLICT (id) DO NOTHING;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -153,7 +184,7 @@ CREATE TRIGGER on_auth_user_created
     AFTER INSERT ON auth.users
     FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
--- 11. Helper Function to Increment Play Count atomically
+-- 11. Helper Function to Atomically Increment Play Count
 CREATE OR REPLACE FUNCTION public.increment_play_count(target_song_id UUID)
 RETURNS VOID AS $$
 BEGIN
@@ -164,34 +195,40 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 12. Storage Buckets Creation (Run in SQL Editor or Supabase Dashboard)
--- Insert storage buckets if not exists
+-- 12. Storage Buckets (tracks, artwork, songs)
+-- Ensure 'tracks' bucket is public for audio streaming
 INSERT INTO storage.buckets (id, name, public) 
-VALUES ('songs', 'songs', true)
-ON CONFLICT (id) DO NOTHING;
+VALUES ('tracks', 'tracks', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
 
+-- Ensure 'artwork' bucket exists and is public for cover art
 INSERT INTO storage.buckets (id, name, public) 
 VALUES ('artwork', 'artwork', true)
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO UPDATE SET public = true;
 
--- Storage Policies for 'songs' bucket
-CREATE POLICY "Public songs access" 
+-- Ensure 'songs' bucket exists as fallback
+INSERT INTO storage.buckets (id, name, public) 
+VALUES ('songs', 'songs', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+-- 13. Storage Access Policies
+-- Enable public reading/streaming for tracks, artwork, and songs
+DROP POLICY IF EXISTS "Public tracks access" ON storage.objects;
+CREATE POLICY "Public tracks access" 
 ON storage.objects FOR SELECT 
-USING (bucket_id = 'songs');
+USING (bucket_id IN ('tracks', 'artwork', 'songs'));
 
-CREATE POLICY "Authenticated users can upload songs" 
+DROP POLICY IF EXISTS "Allow uploads to tracks" ON storage.objects;
+CREATE POLICY "Allow uploads to tracks" 
 ON storage.objects FOR INSERT 
-WITH CHECK (bucket_id = 'songs' AND auth.role() = 'authenticated');
+WITH CHECK (bucket_id IN ('tracks', 'artwork', 'songs'));
 
-CREATE POLICY "Users can delete their songs" 
+DROP POLICY IF EXISTS "Allow updates to tracks" ON storage.objects;
+CREATE POLICY "Allow updates to tracks" 
+ON storage.objects FOR UPDATE 
+USING (bucket_id IN ('tracks', 'artwork', 'songs'));
+
+DROP POLICY IF EXISTS "Allow deletes to tracks" ON storage.objects;
+CREATE POLICY "Allow deletes to tracks" 
 ON storage.objects FOR DELETE 
-USING (bucket_id = 'songs' AND auth.uid()::text = (storage.foldername(name))[1]);
-
--- Storage Policies for 'artwork' bucket
-CREATE POLICY "Public artwork access" 
-ON storage.objects FOR SELECT 
-USING (bucket_id = 'artwork');
-
-CREATE POLICY "Authenticated users can upload artwork" 
-ON storage.objects FOR INSERT 
-WITH CHECK (bucket_id = 'artwork' AND auth.role() = 'authenticated');
+USING (bucket_id IN ('tracks', 'artwork', 'songs'));
