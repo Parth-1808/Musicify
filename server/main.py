@@ -52,14 +52,54 @@ env_cookies = os.getenv("YOUTUBE_COOKIES", "").strip()
 if env_cookies:
     try:
         import base64
-        if not env_cookies.startswith("# Netscape"):
-            decoded = base64.b64decode(env_cookies).decode("utf-8")
-            COOKIE_FILE_PATH.write_text(decoded, encoding="utf-8")
-        else:
-            COOKIE_FILE_PATH.write_text(env_cookies, encoding="utf-8")
-        print("Loaded YouTube cookies from YOUTUBE_COOKIES env variable.")
-    except Exception:
+        if not env_cookies.startswith("# Netscape") and not env_cookies.startswith("# HTTP"):
+            try:
+                decoded = base64.b64decode(env_cookies).decode("utf-8")
+                if "# Netscape" in decoded or "youtube.com" in decoded:
+                    env_cookies = decoded
+            except Exception:
+                pass
+        # Unescape literal \n, \r, and \t from web environment inputs
+        env_cookies = env_cookies.replace("\\n", "\n").replace("\\r", "\r").replace("\\t", "\t")
         COOKIE_FILE_PATH.write_text(env_cookies, encoding="utf-8")
+        print("Loaded YouTube cookies from YOUTUBE_COOKIES env variable.")
+    except Exception as e:
+        COOKIE_FILE_PATH.write_text(env_cookies, encoding="utf-8")
+        print(f"Loaded raw YouTube cookies: {e}")
+
+def extract_info_with_fallback(base_opts: dict, url: str, download: bool = False):
+    """Try extraction with multiple client strategies in order of reliability"""
+    strategies = [
+        ['android'],
+        ['tv_embedded'],
+        ['android_vr'],
+        ['web']
+    ]
+    last_err = None
+    for client in strategies:
+        opts = dict(base_opts)
+        opts['extractor_args'] = {'youtube': {'player_client': client}}
+        if COOKIE_FILE_PATH.exists() and COOKIE_FILE_PATH.stat().st_size > 0:
+            opts['cookiefile'] = str(COOKIE_FILE_PATH)
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                return ydl.extract_info(url, download=download)
+        except Exception as e:
+            last_err = e
+            continue
+    
+    # Final attempt with raw options and cookies if available
+    if COOKIE_FILE_PATH.exists() and COOKIE_FILE_PATH.stat().st_size > 0:
+        opts = dict(base_opts)
+        opts['cookiefile'] = str(COOKIE_FILE_PATH)
+        opts.pop('extractor_args', None)
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                return ydl.extract_info(url, download=download)
+        except Exception as e:
+            last_err = e
+
+    raise last_err or Exception("Could not extract audio from YouTube")
 
 # Supabase Client Initialization
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
@@ -130,17 +170,9 @@ def get_video_info(req: VideoInfoRequest):
         'extract_flat': False,
         'quiet': True,
         'no_warnings': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android', 'web_creator']
-            }
-        },
     }
-    if COOKIE_FILE_PATH.exists() and COOKIE_FILE_PATH.stat().st_size > 0:
-        ydl_opts['cookiefile'] = str(COOKIE_FILE_PATH)
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(req.url, download=False)
+        info = extract_info_with_fallback(ydl_opts, req.url, download=False)
             if not info:
                 raise HTTPException(status_code=400, detail="Could not extract video info")
             
@@ -248,14 +280,10 @@ async def download_track(req: DownloadRequest):
             }
         }
 
-        if COOKIE_FILE_PATH.exists() and COOKIE_FILE_PATH.stat().st_size > 0:
-            ydl_opts['cookiefile'] = str(COOKIE_FILE_PATH)
-
-        # Run yt-dlp in threadpool
+        # Run yt-dlp in threadpool with multi-client fallback
         loop = asyncio.get_event_loop()
         def run_ytdl():
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                return ydl.extract_info(req.url, download=True)
+            return extract_info_with_fallback(ydl_opts, req.url, download=True)
 
         info = await loop.run_in_executor(None, run_ytdl)
         if not info:
