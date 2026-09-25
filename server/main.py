@@ -19,6 +19,13 @@ from supabase import create_client, Client
 
 load_dotenv()
 
+# Ensure ffmpeg and ffprobe are available in any cloud environment (Render, Railway, Linux)
+try:
+    import static_ffmpeg
+    static_ffmpeg.add_paths()
+except Exception as e:
+    pass
+
 app = FastAPI(title="Musify Backend", description="High-Quality YouTube Audio Extractor & Supabase Sync Engine")
 
 app.add_middleware(
