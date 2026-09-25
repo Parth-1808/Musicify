@@ -6,22 +6,44 @@ const STORAGE_KEY_URL = 'MUSIFY_SUPABASE_URL';
 const STORAGE_KEY_ANON = 'MUSIFY_SUPABASE_ANON_KEY';
 const STORAGE_KEY_BACKEND = 'MUSIFY_BACKEND_URL';
 
-// Defaults
-export const DEFAULT_BACKEND_URL =
-  Platform.OS === 'web' ? 'http://localhost:8000' : 'http://172.22.126.19:8000';
-export const DEFAULT_SUPABASE_URL = '';
-export const DEFAULT_SUPABASE_ANON = '';
+// 1. Read directly from Environment Variables (.env)
+export const ENV_SUPABASE_URL =
+  process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://bqerkiosvweccpkklwfv.supabase.co';
+export const ENV_SUPABASE_ANON = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+export const ENV_BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || '';
 
 let supabaseInstance: SupabaseClient | null = null;
-let currentSupabaseUrl = DEFAULT_SUPABASE_URL;
-let currentSupabaseAnon = DEFAULT_SUPABASE_ANON;
-let currentBackendUrl = DEFAULT_BACKEND_URL;
+let currentSupabaseUrl = ENV_SUPABASE_URL;
+let currentSupabaseAnon = ENV_SUPABASE_ANON;
+let currentBackendUrl = ENV_BACKEND_URL;
+
+// Eagerly initialize if env vars are present
+if (currentSupabaseUrl && currentSupabaseAnon) {
+  try {
+    supabaseInstance = createClient(currentSupabaseUrl, currentSupabaseAnon, {
+      auth: {
+        storage: AsyncStorage,
+        autoRefreshToken: true,
+        persistSession: true,
+        detectSessionInUrl: false,
+      },
+    });
+  } catch (err) {
+    console.warn('Initial Supabase client creation error:', err);
+  }
+}
 
 export async function initSupabase(): Promise<SupabaseClient | null> {
   try {
-    const savedUrl = await AsyncStorage.getItem(STORAGE_KEY_URL);
-    const savedAnon = await AsyncStorage.getItem(STORAGE_KEY_ANON);
-    const savedBackend = await AsyncStorage.getItem(STORAGE_KEY_BACKEND);
+    // If already created from env, return it
+    if (supabaseInstance) {
+      return supabaseInstance;
+    }
+
+    // Check storage or fallback to env
+    const savedUrl = (await AsyncStorage.getItem(STORAGE_KEY_URL)) || ENV_SUPABASE_URL;
+    const savedAnon = (await AsyncStorage.getItem(STORAGE_KEY_ANON)) || ENV_SUPABASE_ANON;
+    const savedBackend = (await AsyncStorage.getItem(STORAGE_KEY_BACKEND)) || ENV_BACKEND_URL;
 
     if (savedBackend) {
       currentBackendUrl = savedBackend;

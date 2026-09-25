@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  TextInput,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
@@ -15,11 +14,7 @@ import { useMusic } from '../context/MusicContext';
 import { THEME } from '../theme/theme';
 import { GlassCard } from '../components/GlassCard';
 import { GlassButton } from '../components/GlassButton';
-import {
-  getSupabaseConfig,
-  getBackendUrl,
-  setBackendUrl,
-} from '../config/supabase';
+import { getSupabaseConfig, getBackendUrl } from '../config/supabase';
 import { StorageService } from '../services/storageService';
 
 interface SettingsScreenProps {
@@ -27,23 +22,14 @@ interface SettingsScreenProps {
 }
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onOpenAuth }) => {
-  const { user, isGuest, signOut, updateCredentials, isConfigured } = useAuth();
+  const { user, isGuest, signOut, isConfigured } = useAuth();
   const { refreshSongs } = useMusic();
 
-  const [supabaseUrl, setSupabaseUrl] = useState('');
-  const [supabaseAnonKey, setSupabaseAnonKey] = useState('');
-  const [backendUrl, setBackendUrlState] = useState('');
   const [storageUsage, setStorageUsage] = useState({ totalMB: '0.0' });
-  const [savingSupabase, setSavingSupabase] = useState(false);
   const [testingBackend, setTestingBackend] = useState(false);
   const [backendStatus, setBackendStatus] = useState<'idle' | 'online' | 'offline'>('idle');
 
   useEffect(() => {
-    const config = getSupabaseConfig();
-    setSupabaseUrl(config.url);
-    setSupabaseAnonKey(config.anon);
-    setBackendUrlState(getBackendUrl());
-
     loadStorageUsage();
     checkBackendHealth();
   }, []);
@@ -68,34 +54,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onOpenAuth }) =>
     } finally {
       setTestingBackend(false);
     }
-  };
-
-  const handleSaveSupabase = async () => {
-    if (!supabaseUrl.trim() || !supabaseAnonKey.trim()) {
-      Alert.alert('Incomplete', 'Please provide both Supabase URL and Anon Key.');
-      return;
-    }
-
-    try {
-      setSavingSupabase(true);
-      const success = await updateCredentials(supabaseUrl.trim(), supabaseAnonKey.trim());
-      if (success) {
-        Alert.alert('Saved!', 'Supabase credentials saved successfully. Cloud sync is active.');
-        await refreshSongs();
-      } else {
-        Alert.alert('Error', 'Could not initialize Supabase with provided credentials.');
-      }
-    } catch (e: any) {
-      Alert.alert('Error', e.message);
-    } finally {
-      setSavingSupabase(false);
-    }
-  };
-
-  const handleSaveBackend = async () => {
-    await setBackendUrl(backendUrl.trim());
-    await checkBackendHealth();
-    Alert.alert('Saved', 'Backend server URL updated.');
   };
 
   const handleClearCache = () => {
@@ -137,7 +95,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onOpenAuth }) =>
           </View>
           <View style={{ flex: 1, marginLeft: 14 }}>
             <Text style={styles.accountEmail}>
-              {user?.email || (isGuest ? 'Guest Mode (Demo)' : 'Not Signed In')}
+              {user?.email || (isGuest ? 'Guest Mode' : 'Not Signed In')}
             </Text>
             <Text style={styles.accountStatus}>
               {user ? 'Authenticated via Supabase' : 'Offline / Local listening mode'}
@@ -166,104 +124,93 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onOpenAuth }) =>
         </View>
       </GlassCard>
 
-      {/* Supabase Cloud Storage & Auth Config */}
-      <Text style={styles.sectionHeader}>SUPABASE CLOUD CONFIGURATION</Text>
+      {/* Cloud & Service Architecture Status */}
+      <Text style={styles.sectionHeader}>CLOUD & SERVICES STATUS</Text>
       <GlassCard style={styles.card} borderRadius={THEME.borderRadius.lg}>
-        <View style={styles.statusIndicatorRow}>
+        {/* Supabase Status */}
+        <View style={styles.statusItemRow}>
+          <View style={styles.statusIconBox}>
+            <Ionicons name="cloud-done-outline" size={20} color={THEME.colors.spotifyGreen} />
+          </View>
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={styles.statusTitle}>Supabase Cloud</Text>
+            <Text style={styles.statusSub}>
+              {isConfigured ? 'Active & Synced (.env configured)' : 'Using Local Storage Engine'}
+            </Text>
+          </View>
           <View
             style={[
-              styles.statusDot,
-              { backgroundColor: isConfigured ? THEME.colors.spotifyGreen : THEME.colors.danger },
+              styles.statusPill,
+              { backgroundColor: isConfigured ? 'rgba(29, 185, 84, 0.15)' : 'rgba(255, 69, 58, 0.15)' },
             ]}
-          />
-          <Text style={styles.statusLabel}>
-            {isConfigured ? 'Supabase Connected' : 'Supabase Not Configured (Using Local Storage)'}
-          </Text>
+          >
+            <View
+              style={[
+                styles.statusDot,
+                { backgroundColor: isConfigured ? THEME.colors.spotifyGreen : THEME.colors.danger },
+              ]}
+            />
+            <Text
+              style={[
+                styles.statusPillText,
+                { color: isConfigured ? THEME.colors.spotifyGreen : THEME.colors.danger },
+              ]}
+            >
+              {isConfigured ? 'Connected' : 'Offline'}
+            </Text>
+          </View>
         </View>
 
-        <Text style={styles.fieldLabel}>Supabase Project URL</Text>
-        <TextInput
-          placeholder="https://your-project.supabase.co"
-          placeholderTextColor={THEME.colors.textMuted}
-          value={supabaseUrl}
-          onChangeText={setSupabaseUrl}
-          autoCapitalize="none"
-          autoCorrect={false}
-          style={styles.input}
-        />
+        <View style={styles.divider} />
 
-        <Text style={styles.fieldLabel}>Supabase Anon Key</Text>
-        <TextInput
-          placeholder="eyJhbGciOiJIUzI1NiIsIn..."
-          placeholderTextColor={THEME.colors.textMuted}
-          value={supabaseAnonKey}
-          onChangeText={setSupabaseAnonKey}
-          autoCapitalize="none"
-          autoCorrect={false}
-          secureTextEntry
-          style={styles.input}
-        />
-
-        <GlassButton
-          title={savingSupabase ? 'Connecting...' : 'Save & Connect Supabase'}
-          onPress={handleSaveSupabase}
-          loading={savingSupabase}
-          variant="secondary"
-          size="md"
-          icon={<Ionicons name="cloud-upload-outline" size={18} color="#fff" />}
-          style={{ marginTop: 6 }}
-        />
+        {/* Audio Engine Status */}
+        <View style={styles.statusItemRow}>
+          <View style={styles.statusIconBox}>
+            <Ionicons name="hardware-chip-outline" size={20} color={THEME.colors.cyanNeon} />
+          </View>
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={styles.statusTitle}>Audio Extractor Engine</Text>
+            <Text style={styles.statusSub}>
+              {backendStatus === 'online'
+                ? '320kbps Studio Master (Online)'
+                : backendStatus === 'offline'
+                ? 'Connecting to server...'
+                : 'Checking audio engine...'}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.refreshBadge}
+            onPress={checkBackendHealth}
+            disabled={testingBackend}
+          >
+            {testingBackend ? (
+              <ActivityIndicator size="small" color={THEME.colors.spotifyGreen} />
+            ) : (
+              <Ionicons
+                name="refresh"
+                size={16}
+                color={backendStatus === 'online' ? THEME.colors.spotifyGreen : THEME.colors.textMuted}
+              />
+            )}
+          </TouchableOpacity>
+        </View>
       </GlassCard>
 
-      {/* YouTube Downloader Backend Server */}
-      <Text style={styles.sectionHeader}>AUDIO EXTRACTION BACKEND</Text>
+      {/* Audio Quality Specifications */}
+      <Text style={styles.sectionHeader}>AUDIO FIDELITY</Text>
       <GlassCard style={styles.card} borderRadius={THEME.borderRadius.lg}>
-        <View style={styles.statusIndicatorRow}>
-          <View
-            style={[
-              styles.statusDot,
-              {
-                backgroundColor:
-                  backendStatus === 'online'
-                    ? THEME.colors.spotifyGreen
-                    : backendStatus === 'offline'
-                    ? THEME.colors.danger
-                    : THEME.colors.amberGlow,
-              },
-            ]}
-          />
-          <Text style={styles.statusLabel}>
-            Backend Server: {backendStatus.toUpperCase()} (Port 8000)
-          </Text>
-        </View>
-
-        <Text style={styles.fieldLabel}>Backend API URL</Text>
-        <TextInput
-          placeholder="http://localhost:8000 or http://192.168.x.x:8000"
-          placeholderTextColor={THEME.colors.textMuted}
-          value={backendUrl}
-          onChangeText={setBackendUrlState}
-          autoCapitalize="none"
-          autoCorrect={false}
-          style={styles.input}
-        />
-
-        <View style={{ flexDirection: 'row', gap: 10, marginTop: 6 }}>
-          <GlassButton
-            title="Save URL"
-            onPress={handleSaveBackend}
-            variant="secondary"
-            size="sm"
-            style={{ flex: 1 }}
-          />
-          <GlassButton
-            title={testingBackend ? 'Checking...' : 'Test Connection'}
-            onPress={checkBackendHealth}
-            loading={testingBackend}
-            variant="primary"
-            size="sm"
-            style={{ flex: 1 }}
-          />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <View style={styles.goldIconBox}>
+            <Ionicons name="diamond" size={20} color={THEME.colors.amberGlow} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 15, fontWeight: '700', color: THEME.colors.textPrimary }}>
+              320 kbps Ultra Studio Master
+            </Text>
+            <Text style={{ fontSize: 12, color: THEME.colors.textSecondary, marginTop: 3 }}>
+              48kHz CBR Master encoded with full dynamic range. Exceeds standard Spotify (160k) with audiophile fidelity.
+            </Text>
+          </View>
         </View>
       </GlassCard>
 
@@ -273,32 +220,22 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onOpenAuth }) =>
         <View style={styles.storageUsageRow}>
           <View>
             <Text style={styles.storageTitle}>Offline Music Storage</Text>
-            <Text style={styles.storageSub}>Audio tracks and high-res cover art</Text>
+            <Text style={styles.storageSub}>Cached audio tracks and cover artwork</Text>
           </View>
           <Text style={styles.storageValue}>{storageUsage.totalMB} MB</Text>
         </View>
 
         <TouchableOpacity onPress={handleClearCache} style={styles.clearCacheBtn}>
-          <Ionicons name="trash-outline" size={18} color={THEME.colors.danger} />
+          <Ionicons name="trash-outline" size={17} color={THEME.colors.danger} />
           <Text style={styles.clearCacheText}>Clear Offline Music Cache</Text>
         </TouchableOpacity>
       </GlassCard>
 
-      {/* Quality Badge Info */}
-      <GlassCard style={[styles.card, { marginTop: 14 }]} borderRadius={THEME.borderRadius.lg}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <MaterialCommunityIcons name="quality-high" size={24} color={THEME.colors.cyanNeon} />
-          <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 14, fontWeight: '700', color: THEME.colors.textPrimary }}>
-              Ultra Hi-Fi Sound Engine
-            </Text>
-            <Text style={{ fontSize: 12, color: THEME.colors.textSecondary, marginTop: 2 }}>
-              Musify extracts 320kbps MP3 and Studio Opus audio, exceeding standard Spotify (160k)
-              with full frequency fidelity.
-            </Text>
-          </View>
-        </View>
-      </GlassCard>
+      {/* App Info Footer */}
+      <View style={styles.appInfoContainer}>
+        <Text style={styles.appInfoTitle}>Musify Ultra Hi-Fi</Text>
+        <Text style={styles.appInfoSub}>Version 1.0.0 • Cloud & Offline Audio Player</Text>
+      </View>
     </ScrollView>
   );
 };
@@ -318,25 +255,35 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: THEME.colors.textPrimary,
     marginBottom: 20,
+    letterSpacing: -0.5,
+  },
+  sectionHeader: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: THEME.colors.textMuted,
+    letterSpacing: 1.2,
+    marginTop: 22,
+    marginBottom: 8,
+    marginLeft: 4,
   },
   card: {
     padding: 16,
-    marginBottom: 16,
+    backgroundColor: THEME.colors.glassSurface,
   },
   accountRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: 'rgba(29, 185, 84, 0.15)',
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
   },
   accountEmail: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: THEME.colors.textPrimary,
   },
@@ -349,56 +296,71 @@ const styles = StyleSheet.create({
     marginTop: 14,
     alignItems: 'flex-start',
   },
-  sectionHeader: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: THEME.colors.textMuted,
-    letterSpacing: 1.2,
-    marginBottom: 8,
-    marginLeft: 4,
-  },
-  statusIndicatorRow: {
+  statusItemRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
+    paddingVertical: 4,
+  },
+  statusIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  goldIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 184, 0, 0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  statusTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: THEME.colors.textPrimary,
+  },
+  statusSub: {
+    fontSize: 12,
+    color: THEME.colors.textSecondary,
+    marginTop: 2,
+  },
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    gap: 6,
   },
   statusDot: {
-    width: 8,
-    height: 8,
+    width: 7,
+    height: 7,
     borderRadius: 4,
   },
-  statusLabel: {
+  statusPillText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: THEME.colors.textSecondary,
+    fontWeight: '700',
   },
-  fieldLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: THEME.colors.textSecondary,
-    marginBottom: 6,
-    marginTop: 6,
-  },
-  input: {
+  refreshBadge: {
+    padding: 8,
+    borderRadius: 8,
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: THEME.borderRadius.md,
-    borderWidth: 1,
-    borderColor: THEME.colors.glassBorder,
-    color: THEME.colors.textPrimary,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    marginBottom: 10,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    marginVertical: 12,
   },
   storageUsageRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    alignItems: 'center',
   },
   storageTitle: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '700',
     color: THEME.colors.textPrimary,
   },
@@ -408,7 +370,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   storageValue: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '800',
     color: THEME.colors.spotifyGreen,
   },
@@ -416,14 +378,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255, 59, 48, 0.1)',
+    gap: 8,
+    marginTop: 14,
     paddingVertical: 10,
     borderRadius: THEME.borderRadius.md,
-    gap: 8,
+    backgroundColor: 'rgba(255, 69, 58, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 69, 58, 0.25)',
   },
   clearCacheText: {
     fontSize: 13,
     fontWeight: '700',
     color: THEME.colors.danger,
+  },
+  appInfoContainer: {
+    alignItems: 'center',
+    marginTop: 36,
+    marginBottom: 20,
+  },
+  appInfoTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: THEME.colors.textMuted,
+  },
+  appInfoSub: {
+    fontSize: 11,
+    color: THEME.colors.textMuted,
+    marginTop: 3,
   },
 });

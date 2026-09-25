@@ -7,6 +7,9 @@ export const ApiService = {
    */
   async getYouTubeInfo(url: string) {
     const backendUrl = getBackendUrl();
+    if (!backendUrl) {
+      throw new Error('Backend URL is not configured in .env (EXPO_PUBLIC_BACKEND_URL).');
+    }
     const response = await fetch(`${backendUrl}/api/info`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -32,6 +35,9 @@ export const ApiService = {
     uploadToSupabase?: boolean;
   }): Promise<{ success: boolean; song: Song; supabase_synced: boolean }> {
     const backendUrl = getBackendUrl();
+    if (!backendUrl) {
+      throw new Error('Backend URL is not configured in .env (EXPO_PUBLIC_BACKEND_URL).');
+    }
     const response = await fetch(`${backendUrl}/api/download`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
