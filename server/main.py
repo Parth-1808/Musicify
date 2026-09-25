@@ -164,8 +164,10 @@ def extract_info_with_fallback(base_opts: dict, url: str, download: bool = False
             else:
                 opts.pop('extractor_args', None)
             
-            opts.setdefault('format', 'ba/b/best[acodec!=none]/18/best')
-            if not download:
+            if download:
+                opts.setdefault('format', 'ba/b/best[acodec!=none]/18/best')
+            else:
+                opts.pop('format', None)
                 opts['ignore_no_formats_error'] = True
             
             if use_cookies and COOKIE_FILE_PATH.exists() and COOKIE_FILE_PATH.stat().st_size > 0:
@@ -258,6 +260,17 @@ def diagnostic_check(url: str = "https://www.youtube.com/watch?v=3jnKPfL8Xhg"):
     cookie_exists = COOKIE_FILE_PATH.exists()
     cookie_size = COOKIE_FILE_PATH.stat().st_size if cookie_exists else 0
 
+    results = {
+        "version": "v1.4-smart-extractor",
+        "ffmpeg": ffmpeg_path,
+        "cookie_file": {
+            "exists": cookie_exists,
+            "size": cookie_size
+        },
+        "url_tested": url
+    }
+
+    # Test extract_info_with_fallback directly
     ydl_opts = {
         'skip_download': True,
         'quiet': True,
@@ -268,8 +281,16 @@ def diagnostic_check(url: str = "https://www.youtube.com/watch?v=3jnKPfL8Xhg"):
     error_msg = None
     try:
         info = extract_info_with_fallback(ydl_opts, url, download=False)
+        best = get_best_stream_format(info)
+        results["best_stream_picked"] = {
+            "id": best.get('format_id') if best else None,
+            "ext": best.get('ext') if best else None,
+            "acodec": best.get('acodec') if best else None,
+            "abr": best.get('abr') if best else None,
+            "has_url": bool(best.get('url')) if best else False
+        }
         for f in info.get('formats', []):
-            if f.get('url'):
+            if f.get('url') and (f.get('acodec') not in (None, 'none') or f.get('vcodec') not in (None, 'none')):
                 extracted_formats.append({
                     "id": f.get('format_id'),
                     "ext": f.get('ext'),
@@ -280,17 +301,10 @@ def diagnostic_check(url: str = "https://www.youtube.com/watch?v=3jnKPfL8Xhg"):
     except Exception as e:
         error_msg = str(e)
 
-    return {
-        "ffmpeg": ffmpeg_path,
-        "cookie_file": {
-            "exists": cookie_exists,
-            "size": cookie_size
-        },
-        "url_tested": url,
-        "usable_formats_count": len(extracted_formats),
-        "usable_formats": extracted_formats[:10],
-        "error": error_msg
-    }
+    results["usable_audio_formats_count"] = len(extracted_formats)
+    results["usable_formats"] = extracted_formats[:10]
+    results["error"] = error_msg
+    return results
 
 @app.post("/api/info")
 def get_video_info(req: VideoInfoRequest):
@@ -300,7 +314,6 @@ def get_video_info(req: VideoInfoRequest):
         'extract_flat': False,
         'quiet': True,
         'no_warnings': True,
-        'format': 'ba/b/best[acodec!=none]/18/best',
         'ignore_no_formats_error': True,
     }
     try:
