@@ -101,3 +101,20 @@ export interface TopListener {
   isCurrentUser?: boolean;
 }
 
+export interface UserQuota {
+  paywall_enabled: boolean;
+  is_vip: boolean;
+  has_unlimited_access: boolean;
+  base_quota: number;
+  bonus_quota: number;
+  total_quota: number;
+  used_songs: number;
+  remaining_songs: number;
+  can_add_song: boolean;
+  referral_code: string;
+  total_referrals: number;
+  vip_conversions: number;
+  referred_by?: string | null;
+}
+
+

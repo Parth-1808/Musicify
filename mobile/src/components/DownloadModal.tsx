@@ -36,7 +36,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
   onSuccess,
 }) => {
   const { user } = useAuth();
-  const { songs, refreshSongs, playSong, showToast } = useMusic();
+  const { songs, refreshSongs, playSong, showToast, checkCanAddSong } = useMusic();
 
   const [url, setUrl] = useState('');
   const selectedQuality = QUALITY_OPTIONS[0];
@@ -118,7 +118,12 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
       return;
     }
 
-    // 2. Start Download with animated Filler Progress Bar
+    // 2. QUOTA CHECK: If paywall is active and user exhausted free songs, show VIP modal
+    if (!checkCanAddSong()) {
+      return; // VipPaywallModal opens automatically via MusicContext
+    }
+
+    // 3. Start Download with animated Filler Progress Bar
     try {
       setIsDownloading(true);
       setDownloadProgress(0.1);

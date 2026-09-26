@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Song, Playlist } from '../types';
+import { Song, Playlist, UserQuota } from '../types';
 import { audioService } from '../services/audioService';
 import { StorageService } from '../services/storageService';
 import { ApiService } from '../services/apiService';
 import { useAuth } from './AuthContext';
+import { VipPaywallModal } from '../components/VipPaywallModal';
 import {
   dspEngine,
   DSPSettings,
@@ -90,6 +91,14 @@ interface MusicContextType {
   addSongToPlaylist: (playlistId: string, songId: string) => Promise<void>;
   removeSongFromPlaylist: (playlistId: string, songId: string) => Promise<void>;
   deletePlaylist: (playlistId: string) => Promise<void>;
+
+  // VIP, Quota & Referral State
+  userQuota: UserQuota | null;
+  refreshUserQuota: () => Promise<void>;
+  isVipModalVisible: boolean;
+  openVipModal: () => void;
+  closeVipModal: () => void;
+  checkCanAddSong: () => boolean;
 }
 
 const MusicContext = createContext<MusicContextType>({} as MusicContextType);
@@ -103,6 +112,38 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [favorites, setFavorites] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isOfflineMode, setIsOfflineMode] = useState<boolean>(false);
+
+  // VIP & Quota State
+  const [userQuota, setUserQuota] = useState<UserQuota | null>(null);
+  const [isVipModalVisible, setIsVipModalVisible] = useState(false);
+
+  const refreshUserQuota = useCallback(async () => {
+    if (user?.id) {
+      try {
+        const q = await ApiService.getUserQuota(user.id);
+        setUserQuota(q);
+      } catch (err) {
+        console.warn('Quota load notice:', err);
+      }
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    refreshUserQuota();
+  }, [refreshUserQuota, cloudSongs.length]);
+
+  const openVipModal = () => setIsVipModalVisible(true);
+  const closeVipModal = () => setIsVipModalVisible(false);
+
+  const checkCanAddSong = (): boolean => {
+    // If remote paywall is active AND user is not VIP and out of quota, block & show paywall!
+    if (userQuota && userQuota.paywall_enabled && !userQuota.can_add_song) {
+      openVipModal();
+      return false;
+    }
+    return true;
+  };
+
 
   // When offline mode is ON: ONLY offline tracks are visible!
   // When online (offline mode is OFF): ONLY cloud tracks are visible!
@@ -742,9 +783,21 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         addSongToPlaylist,
         removeSongFromPlaylist,
         deletePlaylist,
+        userQuota,
+        refreshUserQuota,
+        isVipModalVisible,
+        openVipModal,
+        closeVipModal,
+        checkCanAddSong,
       }}
     >
       {children}
+      <VipPaywallModal
+        visible={isVipModalVisible}
+        onClose={closeVipModal}
+        quota={userQuota}
+        onRefreshQuota={refreshUserQuota}
+      />
     </MusicContext.Provider>
   );
 };

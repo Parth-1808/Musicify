@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import { getSupabase, getBackendUrl } from '../config/supabase';
-import { Song, Playlist, TopListener } from '../types';
+import { Song, Playlist, TopListener, UserQuota } from '../types';
 import { NativeExtractor } from './nativeExtractor';
 import { StorageService } from './storageService';
 
@@ -571,4 +571,92 @@ export const ApiService = {
 
     return realListeners;
   },
+
+  /**
+   * Fetch live user quota, referral stats and paywall toggle state
+   */
+  async getUserQuota(userId?: string): Promise<UserQuota> {
+    const defaultQuota: UserQuota = {
+      paywall_enabled: false, // Default FREE until toggled from backend!
+      is_vip: false,
+      has_unlimited_access: false,
+      base_quota: 25,
+      bonus_quota: 0,
+      total_quota: 25,
+      used_songs: 0,
+      remaining_songs: 25,
+      can_add_song: true,
+      referral_code: 'MUSIFY',
+      total_referrals: 0,
+      vip_conversions: 0,
+    };
+
+    if (!userId) return defaultQuota;
+
+    const supabase = getSupabase();
+    if (!supabase) return defaultQuota;
+
+    try {
+      const { data, error } = await supabase.rpc('get_user_quota', { p_user_id: userId });
+      if (error) {
+        console.warn('get_user_quota RPC notice:', error.message);
+        return defaultQuota;
+      }
+      if (data) {
+        return {
+          paywall_enabled: Boolean(data.paywall_enabled),
+          is_vip: Boolean(data.is_vip),
+          has_unlimited_access: Boolean(data.has_unlimited_access),
+          base_quota: Number(data.base_quota) || 25,
+          bonus_quota: Number(data.bonus_quota) || 0,
+          total_quota: Number(data.total_quota) || 25,
+          used_songs: Number(data.used_songs) || 0,
+          remaining_songs: Number(data.remaining_songs) || 0,
+          can_add_song: data.can_add_song !== undefined ? Boolean(data.can_add_song) : true,
+          referral_code: data.referral_code || 'MUSIFY',
+          total_referrals: Number(data.total_referrals) || 0,
+          vip_conversions: Number(data.vip_conversions) || 0,
+          referred_by: data.referred_by || null,
+        };
+      }
+    } catch (e) {
+      console.warn('Error fetching user quota:', e);
+    }
+
+    return defaultQuota;
+  },
+
+  /**
+   * Apply a friend's referral code (+5 free songs to both accounts)
+   */
+  async applyReferralCode(userId: string, code: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    const supabase = getSupabase();
+    if (!supabase) {
+      return { success: false, error: 'Database connection offline' };
+    }
+
+    try {
+      const { data, error } = await supabase.rpc('apply_referral_code', {
+        p_user_id: userId,
+        p_code: code.trim().toUpperCase(),
+      });
+
+      if (error) {
+        return { success: false, error: error.message };
+      }
+
+      if (data) {
+        return {
+          success: Boolean(data.success),
+          message: data.message,
+          error: data.error,
+        };
+      }
+    } catch (e: any) {
+      return { success: false, error: e.message || 'Failed to apply referral code' };
+    }
+
+    return { success: false, error: 'Unknown server error' };
+  },
 };
+
