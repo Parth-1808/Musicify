@@ -23,7 +23,7 @@ interface AuthScreenProps {
 }
 
 export const AuthScreen: React.FC<AuthScreenProps> = ({ onSuccess, onClose }) => {
-  const { signIn, signUp, continueAsGuest, isConfigured } = useAuth();
+  const { signIn, signUp, isConfigured } = useAuth();
 
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
@@ -66,11 +66,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onSuccess, onClose }) =>
     }
   };
 
-  const handleGuest = () => {
-    continueAsGuest();
-    if (onSuccess) onSuccess();
-  };
-
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -99,17 +94,15 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onSuccess, onClose }) =>
             </LinearGradient>
           </View>
           <Text style={styles.brandTitle}>Musify</Text>
-          <Text style={styles.brandSub}>Ultra Hi-Fi Cloud & Offline Music Experience</Text>
+          <View style={styles.brandBadge}>
+            <Ionicons name="sparkles" size={12} color={THEME.colors.spotifyGreen} />
+            <Text style={styles.brandBadgeText}>ULTRA HI-FI CLOUD</Text>
+          </View>
         </View>
 
         {/* Auth Glass Card */}
         <GlassCard glow="spotify" style={styles.authCard} borderRadius={THEME.borderRadius.xl}>
-          <Text style={styles.authTitle}>{isSignUp ? 'Create Musify Account' : 'Welcome Back'}</Text>
-          <Text style={styles.authSub}>
-            {isSignUp
-              ? 'Save songs to Supabase Cloud & stream anywhere'
-              : 'Sign in to access your cloud playlists and listening stats'}
-          </Text>
+          <Text style={styles.authTitle}>{isSignUp ? 'Create Account' : 'Sign In'}</Text>
 
           {errorMsg ? (
             <View style={styles.errorBox}>
@@ -118,7 +111,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onSuccess, onClose }) =>
             </View>
           ) : null}
 
-          <Text style={styles.inputLabel}>Email Address</Text>
+          <Text style={styles.inputLabel}>Email</Text>
           <View style={styles.inputWrapper}>
             <Ionicons name="mail-outline" size={18} color={THEME.colors.textMuted} />
             <TextInput
@@ -153,7 +146,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onSuccess, onClose }) =>
             loading={loading}
             variant="primary"
             size="lg"
-            style={{ marginTop: 8 }}
+            style={{ marginTop: 12 }}
           />
 
           {/* Toggle between Login and Sign Up */}
@@ -163,21 +156,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onSuccess, onClose }) =>
             </Text>
             <Text style={styles.toggleAction}> {isSignUp ? 'Sign In' : 'Sign Up'}</Text>
           </TouchableOpacity>
-
-          <View style={styles.dividerRow}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>OR</Text>
-            <View style={styles.dividerLine} />
-          </View>
-
-          {/* Guest / Offline Mode Bypass */}
-          <GlassButton
-            title="Continue Offline / Guest Mode"
-            onPress={handleGuest}
-            variant="secondary"
-            size="md"
-            icon={<Ionicons name="sparkles-outline" size={16} color="#fff" />}
-          />
         </GlassCard>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -226,15 +204,28 @@ const styles = StyleSheet.create({
     color: THEME.colors.textPrimary,
     letterSpacing: 0.8,
   },
-  brandSub: {
-    fontSize: 13,
-    color: THEME.colors.textSecondary,
-    marginTop: 4,
-    textAlign: 'center',
+  brandBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(29, 185, 84, 0.12)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(29, 185, 84, 0.3)',
+    marginTop: 6,
+  },
+  brandBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: THEME.colors.spotifyGreen,
+    letterSpacing: 0.8,
   },
   authCard: {
     padding: 24,
     backgroundColor: 'rgba(16, 18, 28, 0.90)',
+    marginTop: 18,
   },
   authTitle: {
     fontSize: 20,

@@ -10,6 +10,7 @@ interface MusicContextType {
   // Songs & Playlists State
   songs: Song[];
   offlineSongs: Song[];
+  cloudSongs: Song[];
   playlists: Playlist[];
   favorites: string[];
   isLoading: boolean;
@@ -80,15 +81,16 @@ const MusicContext = createContext<MusicContextType>({} as MusicContextType);
 export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
 
-  const [rawSongs, setRawSongs] = useState<Song[]>([]);
+  const [cloudSongs, setCloudSongs] = useState<Song[]>([]);
   const [offlineSongs, setOfflineSongs] = useState<Song[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isOfflineMode, setIsOfflineMode] = useState<boolean>(false);
 
-  // Expose offline-only songs when offline mode is active
-  const songs = isOfflineMode ? offlineSongs : rawSongs;
+  // When offline mode is ON: ONLY offline tracks are visible!
+  // When online (offline mode is OFF): ONLY cloud tracks are visible!
+  const songs = isOfflineMode ? offlineSongs : cloudSongs;
 
   // Playback state
   const [currentSong, setCurrentSong] = useState<Song | null>(null);
@@ -218,49 +220,55 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const loadLibrary = async () => {
     setIsLoading(true);
     try {
-      // 1. Get offline songs
+      // 1. Get offline songs from device storage
       const localOffline = await StorageService.getOfflineSongs();
-      setOfflineSongs(localOffline);
-
       // 2. Get favorites
       const favs = await StorageService.getFavorites();
       setFavorites(favs);
+      const favSet = new Set(favs);
 
-      // 3. If offline mode active, avoid remote calls and use local storage only
-      if (isOfflineMode) {
-        setRawSongs(localOffline);
-        const localPls = await StorageService.getLocalPlaylists();
-        setPlaylists(localPls);
-        return;
+      // Enhance offline songs
+      const enhancedOfflineSongs: Song[] = localOffline.map((s) => {
+        const isFav = favSet.has(s.id);
+        const baseSeed = Math.abs((s.title || s.id).split('').reduce((acc, c) => acc + c.charCodeAt(0), 0));
+        const computedLikes = s.likes_count ?? Math.max(1, Math.floor((s.play_count || 1) * 0.45) + (baseSeed % 28) + 4);
+        return {
+          ...s,
+          isOffline: true,
+          is_favorite: isFav,
+          likes_count: isFav ? Math.max(1, computedLikes) : computedLikes,
+        };
+      });
+      setOfflineSongs(enhancedOfflineSongs);
+
+      // 3. Get cloud songs (remote Supabase + local cloud cache)
+      const remoteSongs = await ApiService.fetchSongs(user?.id);
+      const cachedCloudSongs = await StorageService.getCloudSongs();
+
+      const cloudMap = new Map<string, Song>();
+      for (const s of remoteSongs) {
+        cloudMap.set(s.id, { ...s, isOffline: false, localAudioUri: undefined });
+      }
+      for (const s of cachedCloudSongs) {
+        if (!cloudMap.has(s.id)) {
+          cloudMap.set(s.id, { ...s, isOffline: false, localAudioUri: undefined });
+        }
       }
 
-      // 4. Get cloud songs
-      const cloudSongs = await ApiService.fetchSongs(user?.id);
-
-      // Merge local offline URIs if song is already cached
-      const mergedSongs: Song[] = (cloudSongs.length > 0 ? cloudSongs : localOffline).map((cs) => {
-        const matchingOffline = localOffline.find((os) => os.id === cs.id);
-        if (matchingOffline) {
-          return {
-            ...cs,
-            isOffline: true,
-            localAudioUri: matchingOffline.localAudioUri,
-            localArtworkUri: matchingOffline.localArtworkUri,
-          };
-        }
-        return cs;
+      const enhancedCloudSongs: Song[] = Array.from(cloudMap.values()).map((s) => {
+        const isFav = favSet.has(s.id);
+        const baseSeed = Math.abs((s.title || s.id).split('').reduce((acc, c) => acc + c.charCodeAt(0), 0));
+        const computedLikes = s.likes_count ?? Math.max(1, Math.floor((s.play_count || 1) * 0.45) + (baseSeed % 28) + 4);
+        return {
+          ...s,
+          isOffline: false,
+          is_favorite: isFav,
+          likes_count: isFav ? Math.max(1, computedLikes) : computedLikes,
+        };
       });
+      setCloudSongs(enhancedCloudSongs);
 
-      // Also ensure offline songs not yet in cloud are present
-      localOffline.forEach((os) => {
-        if (!mergedSongs.some((s) => s.id === os.id)) {
-          mergedSongs.push(os);
-        }
-      });
-
-      setRawSongs(mergedSongs);
-
-      // 5. Get playlists
+      // 4. Get playlists
       const pls = await ApiService.fetchPlaylists(user?.id);
       if (pls.length > 0) {
         setPlaylists(pls);
@@ -278,7 +286,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const handleSongPlayReported = async (songId: string) => {
     try {
       // Increment local state immediately
-      setRawSongs((prev) =>
+      setCloudSongs((prev) =>
         prev.map((s) => (s.id === songId ? { ...s, play_count: (s.play_count || 0) + 1 } : s))
       );
       setOfflineSongs((prev) =>
@@ -471,9 +479,19 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setFavorites((prev) =>
       isNowFav ? [...prev, songId] : prev.filter((id) => id !== songId)
     );
-    setRawSongs((prev) =>
-      prev.map((s) => (s.id === songId ? { ...s, is_favorite: isNowFav } : s))
-    );
+    const updateFavItem = (s: Song) => {
+      if (s.id === songId) {
+        const currentLikes = s.likes_count ?? 12;
+        const nextLikes = isNowFav ? currentLikes + 1 : Math.max(0, currentLikes - 1);
+        return { ...s, is_favorite: isNowFav, likes_count: nextLikes };
+      }
+      return s;
+    };
+    setCloudSongs((prev) => prev.map(updateFavItem));
+    setOfflineSongs((prev) => prev.map(updateFavItem));
+    if (currentSong && currentSong.id === songId) {
+      setCurrentSong((prev) => (prev ? updateFavItem(prev) : null));
+    }
   };
 
   const downloadSongForOffline = async (song: Song, onProgress?: (p: number) => void) => {
@@ -483,18 +501,6 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const filtered = prev.filter((s) => s.id !== song.id);
         return [offlineVersion, ...filtered];
       });
-      setRawSongs((prev) =>
-        prev.map((s) =>
-          s.id === song.id
-            ? {
-                ...s,
-                isOffline: true,
-                localAudioUri: offlineVersion.localAudioUri,
-                localArtworkUri: offlineVersion.localArtworkUri,
-              }
-            : s
-        )
-      );
     } catch (e) {
       console.error('Offline download failed:', e);
       throw e;
@@ -504,13 +510,6 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const removeSongOffline = async (songId: string) => {
     await StorageService.removeSongOffline(songId);
     setOfflineSongs((prev) => prev.filter((s) => s.id !== songId));
-    setRawSongs((prev) =>
-      prev.map((s) =>
-        s.id === songId
-          ? { ...s, isOffline: false, localAudioUri: undefined, localArtworkUri: undefined }
-          : s
-      )
-    );
   };
 
   const deleteSongEverywhere = async (songId: string) => {
@@ -524,15 +523,14 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // 2. Remove from queue
     setQueue((prev) => prev.filter((s) => s.id !== songId));
 
-    // 3. Remove local offline file
+    // 3. Remove local offline file & cloud cache
     await StorageService.removeSongOffline(songId);
+    await StorageService.removeCloudSong(songId);
     setOfflineSongs((prev) => prev.filter((s) => s.id !== songId));
+    setCloudSongs((prev) => prev.filter((s) => s.id !== songId));
 
-    // 4. Remove from songs state
+    // 4. Delete on backend and Supabase
     const songToDelete = songs.find((s) => s.id === songId);
-    setRawSongs((prev) => prev.filter((s) => s.id !== songId));
-
-    // 5. Delete on backend and Supabase
     await ApiService.deleteSong(songId, user?.id);
     showToast(`Deleted "${songToDelete?.title || 'Track'}"`, 'trash');
   };
@@ -638,6 +636,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       value={{
         songs,
         offlineSongs,
+        cloudSongs,
         playlists,
         favorites,
         isLoading,

@@ -17,6 +17,11 @@ from mutagen.id3 import ID3, APIC, TIT2, TPE1, TALB
 import httpx
 from dotenv import load_dotenv
 from supabase import create_client, Client
+from server.audio_pipeline import (
+    process_audio_source,
+    compute_content_hash,
+    probe_audio,
+)
 
 load_dotenv()
 
@@ -108,8 +113,8 @@ def get_best_stream_format(info: dict) -> Optional[dict]:
     usable.sort(key=score_format)
     return usable[-1]
 
-def download_stream_via_ffmpeg(stream_url: str, headers: dict, ffmpeg_args: list, output_file: Path) -> bool:
-    """Stream audio directly from Google's CDN via FFmpeg, bypassing all yt-dlp format match issues"""
+def download_stream_via_ffmpeg(stream_url: str, headers: dict, output_file: Path) -> bool:
+    """Stream audio directly from Google's CDN via FFmpeg using stream copy (no re-encoding)."""
     ffmpeg_bin = get_ffmpeg_binary()
     ua = headers.get('User-Agent', '')
     cmd = [ffmpeg_bin, '-y']
@@ -121,16 +126,16 @@ def download_stream_via_ffmpeg(stream_url: str, headers: dict, ffmpeg_args: list
         cmd.extend(['-headers', header_str])
     
     cmd.extend(['-i', stream_url])
-    cmd.extend(['-threads', '0']) # Max hardware/GPU thread parallelization
-    cmd.extend(ffmpeg_args)
+    cmd.extend(['-threads', '0']) # Max hardware thread parallelization
+    cmd.extend(['-vn', '-c:a', 'copy'])
     cmd.append(str(output_file))
     
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
         if res.returncode == 0 and output_file.exists() and output_file.stat().st_size > 10000:
-            print(f"Direct FFmpeg streaming successful! Size: {output_file.stat().st_size} bytes")
+            print(f"Direct FFmpeg stream copy successful! Size: {output_file.stat().st_size} bytes")
             return True
-        print(f"Direct FFmpeg streaming failed (code {res.returncode}): {res.stderr[-300:]}")
+        print(f"Direct FFmpeg stream copy failed (code {res.returncode}): {res.stderr[-300:]}")
         return False
     except Exception as e:
         print(f"Direct FFmpeg streaming exception: {e}")
@@ -230,7 +235,8 @@ class VideoInfoRequest(BaseModel):
 
 class DownloadRequest(BaseModel):
     url: str
-    quality: Optional[str] = "ultra_320k" # "ultra_320k", "opus_256k", "flac_lossless"
+    quality: Optional[str] = "native" # "native" (stream copy remux), "mp3_compat" (libmp3lame -q:a 0)
+    platform: Optional[str] = "android" # "android", "ios", "web"
     user_id: Optional[str] = None
     upload_to_supabase: Optional[bool] = True
 
@@ -260,7 +266,10 @@ def root():
         "service": "Musify Audio Engine",
         "supabase_connected": supabase_client is not None,
         "features": [
-            "Ultra Hi-Fi 320kbps MP3 & Lossless extraction",
+            "Native Stream Copy Remux (Zero Generational Loss)",
+            "Platform Delivery (Opus for Android/Web, AAC for iOS)",
+            "Optional MP3 Compatibility (VBR Q0)",
+            "Content-Hash Deduplication",
             "Supabase Cloud Storage & Database Sync",
             "Offline Local File Serving",
             "YouTube Metadata & High-Res Artwork scraping"
@@ -459,46 +468,12 @@ def get_video_info(req: VideoInfoRequest):
 
 @app.post("/api/download")
 async def download_track(req: DownloadRequest):
-    """Download audio in higher quality than Spotify, embed tags, and sync to Supabase"""
+    """Download audio with zero generational loss, stream copy remux, and platform delivery"""
     song_uuid = str(uuid.uuid4())
     temp_dir = BASE_DIR / "temp" / song_uuid
     temp_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        # Determine audio format & bitrate with studio master settings
-        audio_ext = "mp3"
-        bitrate_str = "320k"
-        postprocessor_codec = "mp3"
-        quality_label = "320kbps Studio Master (48kHz)"
-        ffmpeg_args = [
-            '-ar', '48000', # 48kHz High-Resolution Audio
-            '-b:a', '320k', # True 320kbps
-            '-q:a', '0',   # Max LAME VBR/CBR encoder precision
-        ]
-
-        if req.quality == "flac_lossless":
-            audio_ext = "flac"
-            postprocessor_codec = "flac"
-            bitrate_str = "lossless"
-            quality_label = "24-bit/48kHz Lossless FLAC Master"
-            ffmpeg_args = [
-                '-ar', '48000',
-                '-sample_fmt', 's24', # 24-bit depth for high dynamic range
-            ]
-        elif req.quality == "opus_256k":
-            audio_ext = "opus"
-            postprocessor_codec = "opus"
-            bitrate_str = "256k"
-            quality_label = "256kbps Acoustic Studio Opus"
-            ffmpeg_args = [
-                '-ar', '48000',
-                '-b:a', '256k',
-                '-vbr', 'on',
-                '-compression_level', '10',
-            ]
-
-        output_template = str(temp_dir / f"%(id)s.%(ext)s")
-
         # Step 1: Extract video info & format list without downloading
         loop = asyncio.get_event_loop()
         meta_opts = {
@@ -516,66 +491,58 @@ async def download_track(req: DownloadRequest):
         detected_artist, title = clean_title(raw_title)
         artist = info.get('artist') or detected_artist or info.get('uploader') or "Unknown Artist"
         duration = info.get('duration', 0)
-        converted_audio_path = temp_dir / f"{video_id}.{audio_ext}"
 
-        # Step 2: Attempt Direct Ultra Hi-Fi FFmpeg Stream Extraction
         best_stream = get_best_stream_format(info)
+        stream_ext = "m4a" if (best_stream and ("mp4" in str(best_stream.get("acodec", "")) or "aac" in str(best_stream.get("acodec", "")))) else "webm"
+        raw_source_path = temp_dir / f"raw_source.{stream_ext}"
+
+        # Step 2: Attempt Direct FFmpeg Stream Copy (No re-encode)
         stream_success = False
         if best_stream and best_stream.get('url'):
             stream_headers = best_stream.get('http_headers', {})
             stream_url = best_stream['url']
-            print(f"Attempting direct FFmpeg streaming for format {best_stream.get('format_id')}...")
+            print(f"Attempting direct FFmpeg stream copy for format {best_stream.get('format_id')}...")
             stream_success = await loop.run_in_executor(
                 None, 
-                lambda: download_stream_via_ffmpeg(stream_url, stream_headers, ffmpeg_args, converted_audio_path)
+                lambda: download_stream_via_ffmpeg(stream_url, stream_headers, raw_source_path)
             )
 
-        # Step 3: If direct streaming was not used or failed, fallback to standard yt-dlp download
-        if not stream_success or not converted_audio_path.exists() or converted_audio_path.stat().st_size < 10000:
-            print("Direct stream download not available; falling back to yt-dlp multi-client extractor...")
+        # Step 3: If direct streaming failed, fallback to yt-dlp native stream download
+        if not stream_success or not raw_source_path.exists() or raw_source_path.stat().st_size < 10000:
+            print("Direct stream copy not available; falling back to yt-dlp native extractor...")
             preferred_format = str(best_stream.get('format_id')) if (best_stream and best_stream.get('format_id')) else 'ba/b/best[acodec!=none]/18/best'
             ydl_opts = {
                 'format': preferred_format,
-                'outtmpl': output_template,
+                'outtmpl': str(temp_dir / "raw_source.%(ext)s"),
                 'writethumbnail': True,
                 'quiet': True,
                 'no_warnings': True,
-                'postprocessors': [
-                    {
-                        'key': 'FFmpegExtractAudio',
-                        'preferredcodec': postprocessor_codec,
-                        'preferredquality': bitrate_str if bitrate_str != "lossless" else None,
-                    },
-                    {
-                        'key': 'FFmpegMetadata',
-                        'add_metadata': True,
-                    }
-                ],
-                'postprocessor_args': {
-                    'FFmpegExtractAudio': ffmpeg_args
-                }
             }
             info_dl = await loop.run_in_executor(None, lambda: extract_info_with_fallback(ydl_opts, req.url, download=True))
             if info_dl:
                 info = info_dl
 
-        # Step 4: Locate downloaded audio file
-        if not converted_audio_path.exists():
-            matches = list(temp_dir.glob(f"*.{audio_ext}"))
+        # Locate raw downloaded source file
+        if not raw_source_path.exists():
+            matches = [f for f in temp_dir.glob("raw_source.*") if f.is_file() and f.stat().st_size > 10000]
+            if not matches:
+                matches = [f for f in temp_dir.iterdir() if f.is_file() and f.suffix.lower() in ('.webm', '.m4a', '.opus', '.mp4', '.mp3', '.ogg', '.flac') and f.stat().st_size > 10000]
             if matches:
-                converted_audio_path = matches[0]
+                raw_source_path = matches[0]
             else:
-                raise HTTPException(status_code=500, detail="Audio conversion failed: no audio file produced")
+                raise HTTPException(status_code=500, detail="Audio download failed: no audio stream obtained")
 
         # Locate downloaded artwork thumbnail
         thumbnail_path = None
         for img_ext in ['jpg', 'jpeg', 'png', 'webp']:
-            thumb_candidate = temp_dir / f"{video_id}.{img_ext}"
+            thumb_candidate = temp_dir / f"raw_source.{img_ext}"
+            if not thumb_candidate.exists():
+                thumb_candidate = temp_dir / f"{video_id}.{img_ext}"
             if thumb_candidate.exists():
                 thumbnail_path = thumb_candidate
                 break
         
-        # If thumbnail not found on disk, download directly from info['thumbnail']
+        # Thumbnail download fallback
         thumb_url = info.get('thumbnail')
         final_thumb_filename = f"{song_uuid}.jpg"
         final_thumb_path = ARTWORK_DIR / final_thumb_filename
@@ -593,67 +560,108 @@ async def download_track(req: DownloadRequest):
             shutil.copyfile(thumbnail_path, final_thumb_path)
             thumbnail_path = final_thumb_path
 
-        # Embed ID3 tags & Artwork into MP3
-        if audio_ext == "mp3" and converted_audio_path.exists():
+        # Step 4: Content Hash & Deduplication Check
+        content_hash = compute_content_hash(raw_source_path)
+        print(f"Track content_hash: {content_hash}")
+
+        # Check local deduplication
+        for meta_file in METADATA_DIR.glob("*.json"):
             try:
-                audio = MP3(str(converted_audio_path), ID3=ID3)
-                try:
-                    audio.add_tags()
-                except Exception:
-                    pass
-                audio.tags.add(TIT2(encoding=3, text=title))
-                audio.tags.add(TPE1(encoding=3, text=artist))
-                audio.tags.add(TALB(encoding=3, text="Musify Ultra Hi-Fi"))
-                if final_thumb_path.exists():
-                    with open(final_thumb_path, 'rb') as art:
-                        audio.tags.add(
-                            APIC(
-                                encoding=3,
-                                mime='image/jpeg',
-                                type=3, # Front cover
-                                desc='Cover',
-                                data=art.read()
-                            )
-                        )
-                audio.save()
-            except Exception as tag_err:
-                print(f"Failed to embed ID3 tags: {tag_err}")
+                cached_data = json.loads(meta_file.read_text(encoding="utf-8"))
+                if cached_data.get("content_hash") == content_hash:
+                    cached_file = DOWNLOADS_DIR / f"{cached_data['id']}.{cached_data.get('format', 'opus')}"
+                    if cached_file.exists():
+                        print(f"Deduplication hit in local cache: reusing track {cached_data['id']}")
+                        return {
+                            "success": True,
+                            "song": cached_data,
+                            "supabase_synced": bool(cached_data.get("audio_url", "").startswith("http")),
+                            "deduplicated": True
+                        }
+            except Exception:
+                continue
 
-        # Move audio to permanent downloads directory
-        final_audio_filename = f"{song_uuid}.{audio_ext}"
-        permanent_audio_path = DOWNLOADS_DIR / final_audio_filename
-        shutil.copyfile(converted_audio_path, permanent_audio_path)
+        # Check Supabase deduplication
+        if supabase_client:
+            try:
+                sb_dupe = supabase_client.table("songs").select("*").eq("content_hash", content_hash).limit(1).execute()
+                if sb_dupe.data and len(sb_dupe.data) > 0:
+                    cached_sb = sb_dupe.data[0]
+                    print(f"Deduplication hit in Supabase: reusing track {cached_sb['id']}")
+                    return {
+                        "success": True,
+                        "song": cached_sb,
+                        "supabase_synced": True,
+                        "deduplicated": True
+                    }
+            except Exception as dupe_err:
+                print(f"Supabase dedupe check notice: {dupe_err}")
 
-        file_size = permanent_audio_path.stat().st_size
+        # Step 5: Execute New Production Audio Pipeline (Remux + Platform Variants + Mutagen Tags)
+        export_mp3 = (req.quality in ("mp3_compat", "mp3"))
+        pipeline_res = await loop.run_in_executor(
+            None,
+            lambda: process_audio_source(
+                source_file=raw_source_path,
+                output_dir=DOWNLOADS_DIR,
+                song_id=song_uuid,
+                title=title,
+                artist=artist,
+                album="Musify",
+                artwork_path=final_thumb_path if final_thumb_path.exists() else None,
+                export_mp3_compat=export_mp3,
+                preferred_platform=req.platform or "android"
+            )
+        )
 
-        # URLs
-        local_audio_url = f"/api/audio/{final_audio_filename}"
+        variants = pipeline_res["variants"]
+        primary_variant = pipeline_res["primary_variant"]
+        primary_ext = primary_variant["format"]
+        primary_filename = primary_variant["filename"]
+        file_size = primary_variant["file_size"]
+        quality_label = primary_variant["label"]
+
+        local_audio_url = f"/api/audio/{primary_filename}"
         local_artwork_url = f"/api/artwork/{final_thumb_filename}"
+        local_opus_url = f"/api/audio/{variants['opus']['filename']}" if "opus" in variants else None
+        local_aac_url = f"/api/audio/{variants['aac']['filename']}" if "aac" in variants else None
 
         supabase_audio_url = None
         supabase_artwork_url = None
+        supabase_opus_url = None
+        supabase_aac_url = None
 
-        # Upload to Supabase if configured & requested
+        # Step 6: Supabase Cloud Storage & Database Sync
         if supabase_client and req.upload_to_supabase:
             try:
                 user_folder = req.user_id if req.user_id else "global"
                 
-                # 1. Upload audio to 'tracks' or 'songs' bucket
-                storage_audio_path = f"{user_folder}/{final_audio_filename}"
-                for target_bucket in ["tracks", "songs"]:
-                    try:
-                        with open(permanent_audio_path, "rb") as f:
-                            supabase_client.storage.from_(target_bucket).upload(
-                                path=storage_audio_path,
-                                file=f,
-                                file_options={"content-type": f"audio/{audio_ext}", "x-upsert": "true"}
-                            )
-                        supabase_audio_url = supabase_client.storage.from_(target_bucket).get_public_url(storage_audio_path)
-                        break
-                    except Exception as b_err:
-                        continue
+                # Upload all produced variants (Opus and/or AAC)
+                for var_key, var_data in variants.items():
+                    var_file = Path(var_data["path"])
+                    var_ext = var_data["format"]
+                    var_storage_path = f"{user_folder}/{var_data['filename']}"
+                    mime = "audio/ogg" if var_ext == "opus" else ("audio/mp4" if var_ext == "m4a" else "audio/mpeg")
+                    for target_bucket in ["tracks", "songs"]:
+                        try:
+                            with open(var_file, "rb") as f:
+                                supabase_client.storage.from_(target_bucket).upload(
+                                    path=var_storage_path,
+                                    file=f,
+                                    file_options={"content-type": mime, "x-upsert": "true"}
+                                )
+                            public_url = supabase_client.storage.from_(target_bucket).get_public_url(var_storage_path)
+                            if var_key == "opus":
+                                supabase_opus_url = public_url
+                            elif var_key == "aac":
+                                supabase_aac_url = public_url
+                            if var_data["filename"] == primary_filename:
+                                supabase_audio_url = public_url
+                            break
+                        except Exception:
+                            continue
 
-                # 2. Upload artwork to 'artwork' or 'tracks' bucket
+                # Upload artwork
                 if final_thumb_path.exists():
                     storage_art_path = f"{user_folder}/{final_thumb_filename}"
                     for art_bucket in ["artwork", "tracks"]:
@@ -670,7 +678,7 @@ async def download_track(req: DownloadRequest):
                         except Exception:
                             continue
 
-                # 3. Insert song record into 'songs' table if user_id is provided
+                # Insert song record into 'songs' table
                 if req.user_id:
                     song_data = {
                         "id": song_uuid,
@@ -678,48 +686,96 @@ async def download_track(req: DownloadRequest):
                         "title": title,
                         "artist": artist,
                         "album": "Musify",
-                        "duration": duration,
+                        "duration": int(round(duration or pipeline_res["source_metadata"]["duration"])),
                         "audio_url": supabase_audio_url or local_audio_url,
                         "artwork_url": supabase_artwork_url or local_artwork_url,
                         "source_url": req.url,
                         "source_id": video_id,
                         "bitrate": quality_label,
-                        "format": audio_ext,
+                        "format": primary_ext,
                         "play_count": 0,
                         "file_size": file_size,
-                        "is_favorite": False
+                        "is_favorite": False,
                     }
-                    supabase_client.table("songs").insert(song_data).execute()
+                    try:
+                        song_data["content_hash"] = content_hash
+                        song_data["source_codec"] = pipeline_res["source_metadata"]["source_codec"]
+                        song_data["source_bitrate_kbps"] = pipeline_res["source_metadata"]["source_bitrate_kbps"]
+                        song_data["sample_rate"] = pipeline_res["source_metadata"]["sample_rate"]
+                        song_data["channels"] = pipeline_res["source_metadata"]["channels"]
+                        song_data["audio_url_opus"] = supabase_opus_url or local_opus_url
+                        song_data["audio_url_aac"] = supabase_aac_url or local_aac_url
+                        song_data["audio_version"] = 2
+                        supabase_client.table("songs").insert(song_data).execute()
+                    except Exception as ins_err:
+                        print(f"Supabase enhanced columns insert note: {ins_err}")
+                        minimal_data = {
+                            "id": song_uuid,
+                            "user_id": req.user_id,
+                            "title": title,
+                            "artist": artist,
+                            "album": "Musify",
+                            "duration": int(round(duration or pipeline_res["source_metadata"]["duration"])),
+                            "audio_url": supabase_audio_url or local_audio_url,
+                            "artwork_url": supabase_artwork_url or local_artwork_url,
+                            "source_url": req.url,
+                            "source_id": video_id,
+                            "bitrate": quality_label,
+                            "format": primary_ext,
+                            "play_count": 0,
+                            "file_size": file_size,
+                            "is_favorite": False
+                        }
+                        supabase_client.table("songs").insert(minimal_data).execute()
             except Exception as sb_err:
                 print(f"Supabase upload warning: {sb_err}")
 
-        # Save metadata record locally
+        # Step 7: Save local metadata record
         meta_record = {
             "id": song_uuid,
             "title": title,
             "artist": artist,
-            "duration": duration,
+            "duration": int(round(duration or pipeline_res["source_metadata"]["duration"])),
             "audio_url": supabase_audio_url or local_audio_url,
             "artwork_url": supabase_artwork_url or local_artwork_url,
             "local_audio_url": local_audio_url,
             "local_artwork_url": local_artwork_url,
+            "audio_url_opus": supabase_opus_url or local_opus_url,
+            "audio_url_aac": supabase_aac_url or local_aac_url,
+            "variants": {
+                k: {
+                    "format": v["format"],
+                    "label": v["label"],
+                    "url": (supabase_opus_url if k == "opus" else (supabase_aac_url if k == "aac" else None)) or f"/api/audio/{v['filename']}",
+                    "file_size": v["file_size"]
+                }
+                for k, v in variants.items()
+            },
             "source_url": req.url,
             "source_id": video_id,
+            "content_hash": content_hash,
+            "source_codec": pipeline_res["source_metadata"]["source_codec"],
+            "source_bitrate_kbps": pipeline_res["source_metadata"]["source_bitrate_kbps"],
+            "sample_rate": pipeline_res["source_metadata"]["sample_rate"],
+            "channels": pipeline_res["source_metadata"]["channels"],
             "bitrate": quality_label,
-            "format": audio_ext,
+            "format": primary_ext,
             "play_count": 0,
             "file_size": file_size,
-            "created_at": None
+            "audio_version": 2,
+            "created_at": None,
         }
-        (METADATA_DIR / f"{song_uuid}.json").write_text(json.dumps(meta_record, indent=2))
+        (METADATA_DIR / f"{song_uuid}.json").write_text(json.dumps(meta_record, indent=2), encoding="utf-8")
 
         return {
             "success": True,
             "song": meta_record,
-            "supabase_synced": bool(supabase_audio_url)
+            "supabase_synced": bool(supabase_audio_url),
+            "deduplicated": False
         }
 
     except Exception as e:
+        print(f"Download processing failed: {e}")
         raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}")
     finally:
         # Cleanup temp directory
@@ -735,7 +791,9 @@ def stream_audio(filename: str, range: Optional[str] = Header(None)):
     file_size = file_path.stat().st_size
     mime_type = "audio/mpeg"
     if filename.endswith(".opus"):
-        mime_type = "audio/opus"
+        mime_type = "audio/ogg"
+    elif filename.endswith(".m4a") or filename.endswith(".mp4"):
+        mime_type = "audio/mp4"
     elif filename.endswith(".flac"):
         mime_type = "audio/flac"
 
@@ -780,7 +838,7 @@ def list_local_songs():
     songs = []
     for meta_file in METADATA_DIR.glob("*.json"):
         try:
-            data = json.loads(meta_file.read_text())
+            data = json.loads(meta_file.read_text(encoding="utf-8"))
             songs.append(data)
         except Exception:
             pass
@@ -793,10 +851,10 @@ def record_play(song_id: str):
     play_count = 1
     if meta_file.exists():
         try:
-            data = json.loads(meta_file.read_text())
+            data = json.loads(meta_file.read_text(encoding="utf-8"))
             data["play_count"] = data.get("play_count", 0) + 1
             play_count = data["play_count"]
-            meta_file.write_text(json.dumps(data, indent=2))
+            meta_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
         except Exception:
             pass
 
@@ -817,7 +875,7 @@ def delete_song(song_id: str):
         meta_file.unlink()
 
     # Delete audio files
-    for ext in ["mp3", "opus", "flac"]:
+    for ext in ["mp3", "opus", "m4a", "flac"]:
         audio_file = DOWNLOADS_DIR / f"{song_id}.{ext}"
         if audio_file.exists():
             audio_file.unlink()

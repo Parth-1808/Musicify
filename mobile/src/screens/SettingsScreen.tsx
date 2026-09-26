@@ -85,6 +85,23 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onOpenAuth, onOp
     );
   };
 
+  const handleLogout = () => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to log out of your Musify account?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Log Out',
+          style: 'destructive',
+          onPress: async () => {
+            await signOut();
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <ScrollView
       style={styles.container}
@@ -94,33 +111,34 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onOpenAuth, onOp
       <Text style={styles.title}>Settings</Text>
 
       {/* Account Profile Card */}
-      <GlassCard style={styles.card} borderRadius={THEME.borderRadius.lg}>
+      <GlassCard glow="spotify" style={styles.card} borderRadius={THEME.borderRadius.lg}>
         <View style={styles.accountRow}>
           <View style={styles.avatar}>
-            <Ionicons name="person" size={24} color={THEME.colors.spotifyGreen} />
+            <Ionicons name="person" size={22} color={THEME.colors.spotifyGreen} />
           </View>
           <View style={{ flex: 1, marginLeft: 14 }}>
             <Text style={styles.accountEmail}>
-              {user?.email || (isGuest ? 'Guest Mode' : 'Not Signed In')}
+              {user?.email || 'Not Signed In'}
             </Text>
-            <Text style={styles.accountStatus}>
-              {user ? 'Authenticated via Supabase' : 'Offline / Local listening mode'}
-            </Text>
+            <View style={styles.vipBadge}>
+              <Ionicons name="sparkles" size={11} color={THEME.colors.spotifyGreen} />
+              <Text style={styles.vipBadgeText}>CLOUD MASTER ACCOUNT</Text>
+            </View>
           </View>
         </View>
 
         <View style={styles.accountActionRow}>
           {user ? (
             <GlassButton
-              title="Sign Out"
-              onPress={signOut}
+              title="Log Out"
+              onPress={handleLogout}
               variant="danger"
               size="sm"
               icon={<Ionicons name="log-out-outline" size={16} color="#fff" />}
             />
           ) : (
             <GlassButton
-              title="Sign In / Sign Up"
+              title="Sign In"
               onPress={onOpenAuth}
               variant="primary"
               size="sm"
@@ -175,47 +193,26 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onOpenAuth, onOp
             <Ionicons name="hardware-chip-outline" size={20} color={THEME.colors.cyanNeon} />
           </View>
           <View style={{ flex: 1, marginLeft: 12 }}>
-            <Text style={styles.statusTitle}>Device Native Audio Engine</Text>
-            <Text style={styles.statusSub}>
-              100% Standalone Mobile GPU & Hardware Decoder (Zero Ports Required)
-            </Text>
+            <Text style={styles.statusTitle}>Audio Engine</Text>
+            <Text style={styles.statusSub}>Hardware Accelerated DSP</Text>
           </View>
           <View style={[styles.statusPill, { backgroundColor: 'rgba(29, 185, 84, 0.15)' }]}>
             <View style={[styles.statusDot, { backgroundColor: THEME.colors.spotifyGreen }]} />
-            <Text style={[styles.statusPillText, { color: THEME.colors.spotifyGreen }]}>Standalone</Text>
+            <Text style={[styles.statusPillText, { color: THEME.colors.spotifyGreen }]}>Active</Text>
           </View>
         </View>
       </GlassCard>
 
       {/* Device GPU & Local Processing Environment */}
-      <Text style={styles.sectionHeader}>DEVICE GPU & LOCAL HARDWARE ACCELERATION</Text>
+      <Text style={styles.sectionHeader}>HARDWARE ACCELERATION</Text>
       <GlassCard style={styles.card} borderRadius={THEME.borderRadius.lg}>
         <View style={styles.statusItemRow}>
           <View style={[styles.statusIconBox, { backgroundColor: 'rgba(0, 242, 254, 0.12)' }]}>
             <Ionicons name="hardware-chip" size={20} color="#00F2FE" />
           </View>
           <View style={{ flex: 1, marginLeft: 12 }}>
-            <Text style={styles.statusTitle}>Device GPU Acceleration</Text>
-            <Text style={styles.statusSub}>
-              Local client-side DSP processing ({envSizeMB} MB Environment active)
-            </Text>
-          </View>
-          <View style={[styles.statusPill, { backgroundColor: 'rgba(0, 242, 254, 0.15)' }]}>
-            <View style={[styles.statusDot, { backgroundColor: '#00F2FE' }]} />
-            <Text style={[styles.statusPillText, { color: '#00F2FE' }]}>Active</Text>
-          </View>
-        </View>
-
-        <View style={styles.divider} />
-
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 4 }}>
-          <View style={{ flex: 1, marginRight: 12 }}>
-            <Text style={{ fontSize: 13, fontWeight: '600', color: THEME.colors.textPrimary }}>
-              Local Audio Environment
-            </Text>
-            <Text style={{ fontSize: 11, color: THEME.colors.textMuted, marginTop: 2 }}>
-              Codecs, GPU Shaders & High-Speed Cache ({envSizeMB} MB)
-            </Text>
+            <Text style={styles.statusTitle}>GPU Shaders & Codecs</Text>
+            <Text style={styles.statusSub}>{envSizeMB} MB Fast Cache</Text>
           </View>
           {onOpenEnvSetup && (
             <TouchableOpacity
@@ -223,14 +220,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onOpenAuth, onOp
               style={{
                 backgroundColor: 'rgba(255, 255, 255, 0.08)',
                 paddingHorizontal: 12,
-                paddingVertical: 7,
+                paddingVertical: 6,
                 borderRadius: THEME.borderRadius.md,
                 borderWidth: 1,
                 borderColor: 'rgba(255, 255, 255, 0.12)',
               }}
             >
-              <Text style={{ fontSize: 12, fontWeight: '700', color: THEME.colors.spotifyGreen }}>
-                Re-Calibrate
+              <Text style={{ fontSize: 11, fontWeight: '700', color: THEME.colors.spotifyGreen }}>
+                Calibrate
               </Text>
             </TouchableOpacity>
           )}
@@ -246,10 +243,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onOpenAuth, onOp
           </View>
           <View style={{ flex: 1 }}>
             <Text style={{ fontSize: 15, fontWeight: '700', color: THEME.colors.textPrimary }}>
-              320 kbps Ultra Studio Master
+              320 kbps Studio Master
             </Text>
-            <Text style={{ fontSize: 12, color: THEME.colors.textSecondary, marginTop: 3 }}>
-              48kHz CBR Master encoded with full dynamic range. Exceeds standard Spotify (160k) with audiophile fidelity.
+            <Text style={{ fontSize: 12, color: THEME.colors.textSecondary, marginTop: 2 }}>
+              48kHz CBR Maximum Precision
             </Text>
           </View>
         </View>
@@ -260,8 +257,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onOpenAuth, onOp
       <GlassCard style={styles.card} borderRadius={THEME.borderRadius.lg}>
         <View style={styles.storageUsageRow}>
           <View>
-            <Text style={styles.storageTitle}>Offline Music Storage</Text>
-            <Text style={styles.storageSub}>Cached audio tracks and cover artwork</Text>
+            <Text style={styles.storageTitle}>Offline Storage</Text>
+            <Text style={styles.storageSub}>Downloaded tracks</Text>
           </View>
           <Text style={styles.storageValue}>{storageUsage.totalMB} MB</Text>
         </View>
@@ -328,10 +325,22 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: THEME.colors.textPrimary,
   },
-  accountStatus: {
-    fontSize: 12,
-    color: THEME.colors.textSecondary,
-    marginTop: 2,
+  vipBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(29, 185, 84, 0.12)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+    marginTop: 4,
+  },
+  vipBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: THEME.colors.spotifyGreen,
+    letterSpacing: 0.8,
   },
   accountActionRow: {
     marginTop: 14,

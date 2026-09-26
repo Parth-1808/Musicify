@@ -10,6 +10,7 @@ export interface Song {
   localArtworkUri?: string;
   isOffline?: boolean;
   play_count: number;
+  likes_count?: number;
   bitrate?: string;
   format?: string;
   source_url?: string;
@@ -38,7 +39,7 @@ export interface UserProfile {
 }
 
 export interface AudioQualityOption {
-  id: 'ultra_320k';
+  id: 'native' | 'mp3_compat' | 'ultra_320k';
   name: string;
   description: string;
   badge: string;
@@ -48,11 +49,11 @@ export interface AudioQualityOption {
 
 export const QUALITY_OPTIONS: AudioQualityOption[] = [
   {
-    id: 'ultra_320k',
-    name: '320 kbps Ultra Studio Master',
-    description: '48kHz CBR Master encoded at maximum LAME precision with full dynamic range. Exceeds standard Spotify Free (160k) and matches Spotify Premium.',
-    badge: '320K MP3 @ 48kHz',
-    tag: 'Ultra Hi-Fi',
+    id: 'native',
+    name: 'Native Bit-Identical Stream',
+    description: 'Direct stream copy (remux) from source with zero generational loss. No lossy-to-lossy degradation.',
+    badge: 'Native Remux',
+    tag: 'Zero Loss',
     icon: 'diamond',
   },
 ];
@@ -79,3 +80,15 @@ export interface ListeningStats {
   favoriteCount: number;
   offlineCount: number;
 }
+
+export interface TopListener {
+  userId: string;
+  name: string;
+  avatarUrl?: string;
+  totalPlays: number;
+  totalHours: string;
+  rank: number;
+  badge: string;
+  isCurrentUser?: boolean;
+}
+

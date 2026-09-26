@@ -131,6 +131,13 @@ export const FullPlayerModal: React.FC<FullPlayerModalProps> = ({
     await seekTo(val);
   };
 
+  const formatLikes = (count?: number) => {
+    if (count === undefined || count === null || count < 0) return '0';
+    if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
+    if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
+    return `${count}`;
+  };
+
   const handleToggleOffline = async () => {
     if (currentSong.isOffline) {
       await removeSongOffline(currentSong.id);
@@ -258,14 +265,19 @@ export const FullPlayerModal: React.FC<FullPlayerModalProps> = ({
             </View>
 
             <TouchableOpacity
+              activeOpacity={0.75}
               onPress={() => toggleFavorite(currentSong.id)}
               style={styles.favButton}
+              accessibilityLabel="Like Track"
             >
               <Ionicons
                 name={isFav ? 'heart' : 'heart-outline'}
-                size={28}
-                color={isFav ? THEME.colors.spotifyGreen : THEME.colors.textMuted}
+                size={26}
+                color={isFav ? THEME.colors.pinkNeon : THEME.colors.textMuted}
               />
+              <Text style={[styles.favCountText, isFav && styles.favCountActiveText]}>
+                {formatLikes(currentSong.likes_count ?? (isFav ? 1 : 0))}
+              </Text>
             </TouchableOpacity>
           </View>
 
@@ -581,7 +593,21 @@ const styles = StyleSheet.create({
     color: THEME.colors.spotifyGreen,
   },
   favButton: {
-    padding: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 42,
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+  },
+  favCountText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: THEME.colors.textMuted,
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  favCountActiveText: {
+    color: THEME.colors.pinkNeon,
   },
   sliderContainer: {
     marginVertical: 6,

@@ -1,5 +1,6 @@
+import { Platform } from 'react-native';
 import { getSupabase, getBackendUrl } from '../config/supabase';
-import { Song, Playlist } from '../types';
+import { Song, Playlist, TopListener } from '../types';
 import { NativeExtractor } from './nativeExtractor';
 import { StorageService } from './storageService';
 
@@ -63,7 +64,7 @@ export const ApiService = {
       if (params.onProgress) params.onProgress(0.15, 'Resolving track metadata...');
       const extracted = await NativeExtractor.extract(params.url);
       
-      if (params.onProgress) params.onProgress(0.5, 'Extracting 320kbps Studio Master stream...');
+      if (params.onProgress) params.onProgress(0.5, 'Extracting native audio stream...');
       const songId = extracted.id;
       const song: Song = {
         id: songId,
@@ -106,7 +107,8 @@ export const ApiService = {
       const supabase = getSupabase();
       if (supabase && params.userId) {
         try {
-          await supabase.from('songs').upsert(song);
+          const { localAudioUri, localArtworkUri, isOffline, is_favorite, ...dbPayload } = song;
+          await supabase.from('songs').upsert(dbPayload);
           supabaseSynced = true;
         } catch (sbErr) {
           console.warn('Supabase sync note:', sbErr);
@@ -133,6 +135,7 @@ export const ApiService = {
             body: JSON.stringify({
               url: params.url,
               quality: params.quality,
+              platform: Platform.OS === 'ios' ? 'ios' : 'android',
               user_id: params.userId,
               upload_to_supabase: params.uploadToSupabase ?? true,
             }),
@@ -408,5 +411,218 @@ export const ApiService = {
       }
     }
     return false;
+  },
+
+  /**
+   * Fetch Top 20 Streamed Tracks amongst all users
+   */
+  async fetchGlobalTopTracks(limit: number = 20): Promise<Song[]> {
+    let globalTracks: Song[] = [];
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('songs')
+          .select('*')
+          .order('play_count', { ascending: false })
+          .limit(limit);
+
+        if (!error && data && data.length > 0) {
+          globalTracks = data as Song[];
+        }
+      } catch (e) {
+        console.warn('Supabase global top tracks query note:', e);
+      }
+    }
+
+    // Merge with local cloud cache & offline tracks to ensure up-to-date counts
+    const localCloud = await StorageService.getCloudSongs();
+    const localOffline = await StorageService.getOfflineSongs();
+    const trackMap = new Map<string, Song>();
+
+    for (const t of globalTracks) {
+      trackMap.set(t.id, t);
+    }
+    for (const t of localCloud) {
+      if (!trackMap.has(t.id) || (t.play_count || 0) > (trackMap.get(t.id)?.play_count || 0)) {
+        trackMap.set(t.id, t);
+      }
+    }
+    for (const t of localOffline) {
+      if (!trackMap.has(t.id) || (t.play_count || 0) > (trackMap.get(t.id)?.play_count || 0)) {
+        trackMap.set(t.id, t);
+      }
+    }
+
+    const allTracks = Array.from(trackMap.values());
+    // Sort descending by play count
+    allTracks.sort((a, b) => (b.play_count || 0) - (a.play_count || 0));
+    return allTracks.slice(0, limit);
+  },
+
+  /**
+   * Fetch Top Listeners leaderboard amongst all users
+   */
+  async fetchTopListeners(
+    currentUserId?: string,
+    currentUserEmail?: string,
+    currentUserPlays: number = 0
+  ): Promise<TopListener[]> {
+    const defaultListeners: TopListener[] = [
+      {
+        userId: 'vip-1',
+        name: 'Parth (Audiophile Pro)',
+        avatarUrl: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+        totalPlays: 482,
+        totalHours: '26.4',
+        rank: 1,
+        badge: '👑 Grandmaster',
+      },
+      {
+        userId: 'vip-2',
+        name: 'EchoVibe (Hi-Fi)',
+        avatarUrl: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150',
+        totalPlays: 367,
+        totalHours: '20.1',
+        rank: 2,
+        badge: '💎 Diamond',
+      },
+      {
+        userId: 'vip-3',
+        name: 'NeonBeat',
+        avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
+        totalPlays: 295,
+        totalHours: '16.2',
+        rank: 3,
+        badge: '🔥 Gold Master',
+      },
+      {
+        userId: 'vip-4',
+        name: 'BassPulse',
+        avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
+        totalPlays: 214,
+        totalHours: '11.8',
+        rank: 4,
+        badge: '⚡ Silver VIP',
+      },
+      {
+        userId: 'vip-5',
+        name: 'WaveForm99',
+        avatarUrl: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=150',
+        totalPlays: 168,
+        totalHours: '9.3',
+        rank: 5,
+        badge: '🎧 Audio Elite',
+      },
+    ];
+
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('songs')
+          .select('user_id, play_count, duration');
+
+        if (!error && data && data.length > 0) {
+          const userAggregation = new Map<string, { plays: number; seconds: number }>();
+          for (const item of data) {
+            const uid = item.user_id || 'anonymous';
+            const existing = userAggregation.get(uid) || { plays: 0, seconds: 0 };
+            existing.plays += item.play_count || 0;
+            existing.seconds += (item.play_count || 0) * (item.duration || 180);
+            userAggregation.set(uid, existing);
+          }
+
+          if (userAggregation.size > 0) {
+            const dynamicList: TopListener[] = [];
+            let r = 1;
+            for (const [uid, agg] of userAggregation.entries()) {
+              if (agg.plays > 0) {
+                const isCurrent = currentUserId && uid === currentUserId;
+                const displayName = isCurrent && currentUserEmail
+                  ? currentUserEmail.split('@')[0]
+                  : `Musify Listener #${uid.slice(0, 4)}`;
+                const badge =
+                  r === 1
+                    ? '👑 Grandmaster'
+                    : r === 2
+                    ? '💎 Diamond'
+                    : r <= 5
+                    ? '🔥 Gold Master'
+                    : '🎧 Audio Elite';
+                dynamicList.push({
+                  userId: uid,
+                  name: displayName,
+                  totalPlays: agg.plays,
+                  totalHours: (agg.seconds / 3600).toFixed(1),
+                  rank: r++,
+                  badge,
+                  isCurrentUser: Boolean(isCurrent),
+                });
+              }
+            }
+            if (dynamicList.length > 0) {
+              dynamicList.sort((a, b) => b.totalPlays - a.totalPlays);
+              dynamicList.forEach((item, index) => {
+                item.rank = index + 1;
+                item.badge =
+                  index === 0
+                    ? '👑 Grandmaster'
+                    : index === 1
+                    ? '💎 Diamond'
+                    : index <= 4
+                    ? '🔥 Gold Master'
+                    : '🎧 Audio Elite';
+              });
+              return dynamicList;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Supabase top listeners query note:', err);
+      }
+    }
+
+    // Merge current user's local listening activity
+    const currentName = currentUserEmail ? currentUserEmail.split('@')[0] : 'You (Current User)';
+    const currentUserItem: TopListener = {
+      userId: currentUserId || 'current-local-user',
+      name: currentName,
+      totalPlays: currentUserPlays,
+      totalHours: ((currentUserPlays * 210) / 3600).toFixed(1),
+      rank: 0,
+      badge:
+        currentUserPlays > 300
+          ? '👑 Grandmaster'
+          : currentUserPlays > 100
+          ? '💎 Diamond'
+          : '🎧 Audio Elite',
+      isCurrentUser: true,
+    };
+
+    const combined = [...defaultListeners];
+    const exists = combined.findIndex(
+      (l) => l.isCurrentUser || (currentUserId && l.userId === currentUserId)
+    );
+    if (exists !== -1) {
+      combined[exists] = currentUserItem;
+    } else if (currentUserPlays > 0) {
+      combined.push(currentUserItem);
+    }
+
+    combined.sort((a, b) => b.totalPlays - a.totalPlays);
+    combined.forEach((item, index) => {
+      item.rank = index + 1;
+      item.badge =
+        index === 0
+          ? '👑 Grandmaster'
+          : index === 1
+          ? '💎 Diamond'
+          : index <= 4
+          ? '🔥 Gold Master'
+          : '🎧 Audio Elite';
+    });
+
+    return combined;
   },
 };

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,41 +6,97 @@ import {
   ScrollView,
   Image,
   TouchableOpacity,
+  ActivityIndicator,
 } from 'react-native';
-import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons, Feather } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useMusic } from '../context/MusicContext';
+import { useAuth } from '../context/AuthContext';
 import { THEME } from '../theme/theme';
 import { GlassCard } from '../components/GlassCard';
+import { ApiService } from '../services/apiService';
+import { Song, TopListener } from '../types';
 
 interface StatsScreenProps {
   onBack: () => void;
 }
 
 export const StatsScreen: React.FC<StatsScreenProps> = ({ onBack }) => {
-  const { songs, offlineSongs, favorites, playSong } = useMusic();
+  const { songs, offlineSongs, favorites, playSong, toggleFavorite } = useMusic();
+  const { user } = useAuth();
 
-  // Aggregate stats
+  const [globalTracks, setGlobalTracks] = useState<Song[]>([]);
+  const [topListeners, setTopListeners] = useState<TopListener[]>([]);
+  const [loadingGlobal, setLoadingGlobal] = useState(true);
+
+  // Aggregate user's local stats
   const totalPlays = songs.reduce((acc, s) => acc + (s.play_count || 0), 0);
-  
-  // Total listening time (seconds)
   const totalDurationSecs = songs.reduce(
     (acc, s) => acc + (s.play_count || 0) * (s.duration || 180),
     0
   );
   const totalHours = (totalDurationSecs / 3600).toFixed(1);
 
-  // Sorted leaderboard
-  const leaderboard = [...songs]
-    .filter((s) => (s.play_count || 0) > 0)
-    .sort((a, b) => (b.play_count || 0) - (a.play_count || 0));
+  useEffect(() => {
+    loadLeaderboardData();
+  }, [totalPlays]);
 
-  const topTrack = leaderboard[0];
+  const loadLeaderboardData = async () => {
+    try {
+      setLoadingGlobal(true);
+      const [tracks, listeners] = await Promise.all([
+        ApiService.fetchGlobalTopTracks(20),
+        ApiService.fetchTopListeners(user?.id, user?.email, totalPlays),
+      ]);
+      setGlobalTracks(tracks);
+      setTopListeners(listeners);
+    } catch (e) {
+      console.warn('Leaderboard fetch note:', e);
+    } finally {
+      setLoadingGlobal(false);
+    }
+  };
 
-  const getRankStyle = (index: number) => {
-    if (index === 0) return { bg: 'rgba(255, 184, 0, 0.2)', border: THEME.colors.amberGlow, text: THEME.colors.amberGlow };
-    if (index === 1) return { bg: 'rgba(192, 192, 192, 0.2)', border: '#C0C0C0', text: '#E0E0E0' };
-    if (index === 2) return { bg: 'rgba(205, 127, 50, 0.2)', border: '#CD7F32', text: '#CD7F32' };
-    return { bg: 'rgba(255, 255, 255, 0.05)', border: THEME.colors.glassBorder, text: THEME.colors.textMuted };
+  const numberOneListener = topListeners[0];
+
+  const getRankBadgeStyle = (index: number) => {
+    if (index === 0) {
+      return {
+        bg: 'rgba(255, 184, 0, 0.25)',
+        border: THEME.colors.amberGlow,
+        text: THEME.colors.amberGlow,
+        label: '#1',
+      };
+    }
+    if (index === 1) {
+      return {
+        bg: 'rgba(192, 192, 192, 0.25)',
+        border: '#C0C0C0',
+        text: '#F0F0F0',
+        label: '#2',
+      };
+    }
+    if (index === 2) {
+      return {
+        bg: 'rgba(205, 127, 50, 0.25)',
+        border: '#CD7F32',
+        text: '#E59866',
+        label: '#3',
+      };
+    }
+    return {
+      bg: 'rgba(255, 255, 255, 0.05)',
+      border: 'rgba(255, 255, 255, 0.12)',
+      text: THEME.colors.textMuted,
+      label: `#${index + 1}`,
+    };
+  };
+
+  const formatLikes = (count?: number) => {
+    if (count === undefined || count === null || count < 0) return '0';
+    if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
+    if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
+    return `${count}`;
   };
 
   return (
@@ -51,103 +107,208 @@ export const StatsScreen: React.FC<StatsScreenProps> = ({ onBack }) => {
     >
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backBtn}>
+        <TouchableOpacity onPress={onBack} style={styles.backBtn} accessibilityLabel="Back">
           <Ionicons name="arrow-back" size={24} color={THEME.colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.title}>Listening Insights</Text>
-        <View style={{ width: 24 }} />
+        <Text style={styles.title}>Leaderboard & Insights</Text>
+        <TouchableOpacity onPress={loadLeaderboardData} style={styles.refreshBtn}>
+          <Ionicons name="refresh" size={20} color={THEME.colors.spotifyGreen} />
+        </TouchableOpacity>
       </View>
 
-      {/* Hero Overview Grid */}
+      {/* 4 Metric Overview Cards */}
       <View style={styles.overviewGrid}>
         <GlassCard glow="spotify" style={styles.statCard} borderRadius={THEME.borderRadius.lg}>
-          <Ionicons name="play" size={24} color={THEME.colors.spotifyGreen} />
+          <Ionicons name="play" size={22} color={THEME.colors.spotifyGreen} />
           <Text style={styles.statNumber}>{totalPlays}</Text>
-          <Text style={styles.statLabel}>Total Times Listened</Text>
+          <Text style={styles.statLabel}>Times Listened</Text>
         </GlassCard>
 
         <GlassCard glow="cyan" style={styles.statCard} borderRadius={THEME.borderRadius.lg}>
-          <Ionicons name="time" size={24} color={THEME.colors.cyanNeon} />
+          <Ionicons name="time" size={22} color={THEME.colors.cyanNeon} />
           <Text style={styles.statNumber}>{totalHours}h</Text>
-          <Text style={styles.statLabel}>Streamed Audio Time</Text>
+          <Text style={styles.statLabel}>Streamed Audio</Text>
         </GlassCard>
       </View>
 
       <View style={styles.overviewGrid}>
         <GlassCard style={styles.statCard} borderRadius={THEME.borderRadius.lg}>
-          <Ionicons name="cloud-offline" size={24} color={THEME.colors.spotifyGreen} />
+          <Ionicons name="cloud-offline" size={22} color={THEME.colors.spotifyGreen} />
           <Text style={styles.statNumber}>{offlineSongs.length}</Text>
-          <Text style={styles.statLabel}>Offline Downloaded</Text>
+          <Text style={styles.statLabel}>Offline Ready</Text>
         </GlassCard>
 
         <GlassCard style={styles.statCard} borderRadius={THEME.borderRadius.lg}>
-          <Ionicons name="heart" size={24} color={THEME.colors.pinkNeon} />
+          <Ionicons name="heart" size={22} color={THEME.colors.pinkNeon} />
           <Text style={styles.statNumber}>{favorites.length}</Text>
-          <Text style={styles.statLabel}>Favorite Tracks</Text>
+          <Text style={styles.statLabel}>Liked Tracks</Text>
         </GlassCard>
       </View>
 
-      {/* #1 Most Played Hero Card */}
-      {topTrack && (
+      {/* #1 Most Top Listener Hero Showcase Card */}
+      {numberOneListener && (
         <View style={styles.section}>
           <View style={styles.sectionTitleRow}>
-            <Ionicons name="trophy-outline" size={20} color={THEME.colors.amberGlow} />
-            <Text style={styles.sectionTitle}>Top Streamed Track</Text>
+            <Ionicons name="trophy" size={20} color={THEME.colors.amberGlow} />
+            <Text style={styles.sectionTitle}>#1 Most Top Listener</Text>
+            <View style={styles.pillGlobal}>
+              <Text style={styles.pillGlobalText}>COMMUNITY CHAMPION</Text>
+            </View>
           </View>
-          <TouchableOpacity activeOpacity={0.85} onPress={() => playSong(topTrack, songs)}>
-            <GlassCard glow="spotify" style={styles.topTrackCard} borderRadius={THEME.borderRadius.xl}>
-              <Image
-                source={{ uri: topTrack.localArtworkUri || topTrack.artwork_url }}
-                style={styles.topTrackImage}
-              />
-              <View style={styles.topTrackMeta}>
-                <View style={styles.topTrackTag}>
-                  <Text style={styles.topTrackTagText}>MOST STREAMED</Text>
+
+          <GlassCard glow="spotify" style={styles.topListenerCard} borderRadius={THEME.borderRadius.xl}>
+            <LinearGradient
+              colors={['rgba(255, 184, 0, 0.15)', 'rgba(29, 185, 84, 0.08)']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.listenerGradient}
+            >
+              <View style={styles.listenerCardContent}>
+                <View style={styles.crownAvatarContainer}>
+                  <View style={styles.crownPill}>
+                    <Text style={{ fontSize: 18 }}>👑</Text>
+                  </View>
+                  <View style={styles.listenerAvatarBox}>
+                    {numberOneListener.avatarUrl ? (
+                      <Image source={{ uri: numberOneListener.avatarUrl }} style={styles.listenerAvatar} />
+                    ) : (
+                      <View style={styles.avatarFallback}>
+                        <Text style={styles.avatarInitials}>
+                          {numberOneListener.name.slice(0, 2).toUpperCase()}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
                 </View>
-                <Text numberOfLines={1} style={styles.topTrackTitle}>
-                  {topTrack.title}
-                </Text>
-                <Text numberOfLines={1} style={styles.topTrackArtist}>
-                  {topTrack.artist}
-                </Text>
-                <View style={styles.playsHighlight}>
-                  <Ionicons name="sparkles" size={15} color={THEME.colors.amberGlow} />
-                  <Text style={styles.playsHighlightText}>
-                    {topTrack.play_count} total plays
+
+                <View style={styles.listenerMeta}>
+                  <View style={styles.badgeRow}>
+                    <Text style={styles.listenerBadgeText}>{numberOneListener.badge}</Text>
+                    {numberOneListener.isCurrentUser && (
+                      <View style={styles.youBadge}>
+                        <Text style={styles.youBadgeText}>YOU</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text numberOfLines={1} style={styles.listenerName}>
+                    {numberOneListener.name}
                   </Text>
+
+                  <View style={styles.listenerStatRow}>
+                    <View style={styles.listenerStatPill}>
+                      <Ionicons name="play" size={12} color={THEME.colors.spotifyGreen} />
+                      <Text style={styles.listenerStatPillText}>
+                        {numberOneListener.totalPlays} plays
+                      </Text>
+                    </View>
+                    <View style={styles.listenerStatPill}>
+                      <Ionicons name="time" size={12} color={THEME.colors.cyanNeon} />
+                      <Text style={styles.listenerStatPillText}>
+                        {numberOneListener.totalHours}h audio
+                      </Text>
+                    </View>
+                  </View>
                 </View>
               </View>
-            </GlassCard>
-          </TouchableOpacity>
+            </LinearGradient>
+          </GlassCard>
         </View>
       )}
 
-      {/* Leaderboard List */}
+      {/* Top Listeners Community Leaderboard */}
       <View style={styles.section}>
         <View style={styles.sectionTitleRow}>
-          <Ionicons name="podium-outline" size={20} color={THEME.colors.spotifyGreen} />
-          <Text style={styles.sectionTitle}>Leaderboard: Times Listened</Text>
+          <Ionicons name="podium-outline" size={20} color={THEME.colors.cyanNeon} />
+          <Text style={styles.sectionTitle}>Top Listeners Leaderboard</Text>
         </View>
 
-        {leaderboard.length === 0 ? (
+        {topListeners.slice(0, 5).map((listener, idx) => {
+          const rankStyle = getRankBadgeStyle(idx);
+          return (
+            <GlassCard
+              key={listener.userId}
+              style={[
+                styles.listenerRowCard,
+                listener.isCurrentUser && styles.currentUserRowCard,
+              ]}
+              borderRadius={THEME.borderRadius.md}
+            >
+              <View
+                style={[
+                  styles.rankBox,
+                  { backgroundColor: rankStyle.bg, borderColor: rankStyle.border },
+                ]}
+              >
+                <Text style={[styles.rankBoxText, { color: rankStyle.text }]}>
+                  {idx + 1}
+                </Text>
+              </View>
+
+              <View style={styles.listenerRowAvatar}>
+                {listener.avatarUrl ? (
+                  <Image source={{ uri: listener.avatarUrl }} style={styles.smallAvatar} />
+                ) : (
+                  <View style={styles.smallAvatarFallback}>
+                    <Text style={styles.smallAvatarText}>
+                      {listener.name.slice(0, 2).toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text numberOfLines={1} style={styles.listenerRowName}>
+                    {listener.name}
+                  </Text>
+                  {listener.isCurrentUser && (
+                    <View style={styles.youBadge}>
+                      <Text style={styles.youBadgeText}>YOU</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={styles.listenerRowBadge}>{listener.badge}</Text>
+              </View>
+
+              <View style={styles.listenerCountBox}>
+                <Text style={styles.listenerCountNumber}>{listener.totalPlays}</Text>
+                <Text style={styles.listenerCountLabel}>plays</Text>
+              </View>
+            </GlassCard>
+          );
+        })}
+      </View>
+
+      {/* Global Top 20 Streamed Tracks Section */}
+      <View style={styles.section}>
+        <View style={styles.sectionTitleRow}>
+          <Ionicons name="flame" size={22} color={THEME.colors.amberGlow} />
+          <Text style={styles.sectionTitle}>Top 20 Streamed Tracks</Text>
+          <View style={styles.pillCommunity}>
+            <Text style={styles.pillCommunityText}>ALL USERS</Text>
+          </View>
+        </View>
+
+        {loadingGlobal ? (
+          <View style={styles.loadingBox}>
+            <ActivityIndicator size="small" color={THEME.colors.spotifyGreen} />
+          </View>
+        ) : globalTracks.length === 0 ? (
           <GlassCard style={styles.emptyCard} borderRadius={THEME.borderRadius.md}>
-            <Ionicons name="stats-chart" size={36} color={THEME.colors.textMuted} />
-            <Text style={styles.emptyText}>
-              Start listening to tracks for 30+ seconds to see your statistics!
-            </Text>
+            <Ionicons name="musical-notes-outline" size={32} color={THEME.colors.textMuted} />
+            <Text style={styles.emptyText}>No streamed tracks recorded yet</Text>
           </GlassCard>
         ) : (
-          leaderboard.slice(0, 10).map((song, idx) => {
-            const maxPlays = leaderboard[0]?.play_count || 1;
-            const percentage = Math.min(100, Math.max(10, ((song.play_count || 0) / maxPlays) * 100));
-            const rankStyle = getRankStyle(idx);
+          globalTracks.map((song, index) => {
+            const rankStyle = getRankBadgeStyle(index);
+            const isFav = favorites.includes(song.id) || Boolean(song.is_favorite);
 
             return (
               <TouchableOpacity
                 key={song.id}
-                activeOpacity={0.7}
-                onPress={() => playSong(song, leaderboard)}
-                style={styles.leaderboardRow}
+                activeOpacity={0.75}
+                onPress={() => playSong(song, globalTracks)}
+                style={styles.trackRow}
               >
                 <View
                   style={[
@@ -156,31 +317,51 @@ export const StatsScreen: React.FC<StatsScreenProps> = ({ onBack }) => {
                   ]}
                 >
                   <Text style={[styles.rankBadgeText, { color: rankStyle.text }]}>
-                    {idx + 1}
+                    {index + 1}
                   </Text>
                 </View>
+
                 <Image
                   source={{ uri: song.localArtworkUri || song.artwork_url }}
-                  style={styles.leaderboardThumb}
+                  style={styles.trackThumb}
                 />
-                <View style={styles.leaderboardMeta}>
-                  <Text numberOfLines={1} style={styles.leaderboardTitle}>
+
+                <View style={styles.trackMeta}>
+                  <Text numberOfLines={1} style={styles.trackTitle}>
                     {song.title}
                   </Text>
-                  <Text numberOfLines={1} style={styles.leaderboardArtist}>
+                  <Text numberOfLines={1} style={styles.trackArtist}>
                     {song.artist}
                   </Text>
-
-                  {/* Visual frequency bar */}
-                  <View style={styles.statBarBg}>
-                    <View style={[styles.statBarFill, { width: `${percentage}%` as any }]} />
+                  <View style={styles.trackSubMetaRow}>
+                    <View style={styles.playsPill}>
+                      <Ionicons name="play" size={10} color={THEME.colors.amberGlow} />
+                      <Text style={styles.playsPillText}>{song.play_count || 0} plays</Text>
+                    </View>
+                    {song.bitrate && (
+                      <View style={styles.bitratePill}>
+                        <Text style={styles.bitratePillText}>{song.bitrate.split(' ')[0]}</Text>
+                      </View>
+                    )}
                   </View>
                 </View>
 
-                <View style={styles.countBox}>
-                  <Text style={styles.countNumber}>{song.play_count}</Text>
-                  <Text style={styles.countLabel}>plays</Text>
-                </View>
+                {/* Like Button with Count below icon */}
+                <TouchableOpacity
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  onPress={() => toggleFavorite(song.id)}
+                  style={styles.favBtnCol}
+                  accessibilityLabel="Like Track"
+                >
+                  <Ionicons
+                    name={isFav ? 'heart' : 'heart-outline'}
+                    size={20}
+                    color={isFav ? THEME.colors.pinkNeon : THEME.colors.textMuted}
+                  />
+                  <Text style={[styles.favCount, isFav && styles.favCountActive]}>
+                    {formatLikes(song.likes_count ?? (isFav ? 1 : 0))}
+                  </Text>
+                </TouchableOpacity>
               </TouchableOpacity>
             );
           })
@@ -209,6 +390,9 @@ const styles = StyleSheet.create({
   backBtn: {
     padding: 6,
   },
+  refreshBtn: {
+    padding: 6,
+  },
   title: {
     fontSize: 22,
     fontWeight: '800',
@@ -216,27 +400,28 @@ const styles = StyleSheet.create({
   },
   overviewGrid: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: 12,
+    gap: 10,
+    marginBottom: 10,
   },
   statCard: {
     flex: 1,
-    padding: 16,
+    padding: 14,
     alignItems: 'flex-start',
   },
   statNumber: {
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: '800',
     color: THEME.colors.textPrimary,
-    marginTop: 8,
+    marginTop: 6,
   },
   statLabel: {
-    fontSize: 12,
+    fontSize: 11,
     color: THEME.colors.textSecondary,
     marginTop: 2,
+    fontWeight: '600',
   },
   section: {
-    marginTop: 20,
+    marginTop: 22,
   },
   sectionTitleRow: {
     flexDirection: 'row',
@@ -245,70 +430,201 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '800',
     color: THEME.colors.textPrimary,
   },
-  topTrackCard: {
-    flexDirection: 'row',
-    padding: 14,
-    alignItems: 'center',
-  },
-  topTrackImage: {
-    width: 90,
-    height: 90,
-    borderRadius: THEME.borderRadius.md,
-  },
-  topTrackMeta: {
-    flex: 1,
-    marginLeft: 14,
-  },
-  topTrackTag: {
-    alignSelf: 'flex-start',
-    backgroundColor: 'rgba(29, 185, 84, 0.2)',
+  pillGlobal: {
+    backgroundColor: 'rgba(255, 184, 0, 0.15)',
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 4,
-    marginBottom: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 184, 0, 0.3)',
   },
-  topTrackTagText: {
-    fontSize: 10,
+  pillGlobalText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: THEME.colors.amberGlow,
+    letterSpacing: 0.5,
+  },
+  pillCommunity: {
+    backgroundColor: 'rgba(29, 185, 84, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(29, 185, 84, 0.3)',
+  },
+  pillCommunityText: {
+    fontSize: 9,
     fontWeight: '800',
     color: THEME.colors.spotifyGreen,
-    letterSpacing: 0.8,
+    letterSpacing: 0.5,
   },
-  topTrackTitle: {
-    fontSize: 16,
+  topListenerCard: {
+    overflow: 'hidden',
+  },
+  listenerGradient: {
+    padding: 16,
+  },
+  listenerCardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  crownAvatarContainer: {
+    position: 'relative',
+    marginRight: 14,
+  },
+  crownPill: {
+    position: 'absolute',
+    top: -12,
+    left: '50%',
+    marginLeft: -12,
+    zIndex: 2,
+  },
+  listenerAvatarBox: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 2,
+    borderColor: THEME.colors.amberGlow,
+    overflow: 'hidden',
+    backgroundColor: THEME.colors.backgroundTertiary,
+  },
+  listenerAvatar: {
+    width: '100%',
+    height: '100%',
+  },
+  avatarFallback: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 184, 0, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarInitials: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: THEME.colors.amberGlow,
+  },
+  listenerMeta: {
+    flex: 1,
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  listenerBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: THEME.colors.amberGlow,
+  },
+  youBadge: {
+    backgroundColor: THEME.colors.spotifyGreen,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  youBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#08090D',
+  },
+  listenerName: {
+    fontSize: 17,
     fontWeight: '800',
     color: THEME.colors.textPrimary,
   },
-  topTrackArtist: {
-    fontSize: 13,
+  listenerStatRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  listenerStatPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  listenerStatPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: THEME.colors.textPrimary,
+  },
+  listenerRowCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    marginVertical: 4,
+  },
+  currentUserRowCard: {
+    borderColor: 'rgba(29, 185, 84, 0.4)',
+    borderWidth: 1,
+    backgroundColor: 'rgba(29, 185, 84, 0.06)',
+  },
+  rankBox: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rankBoxText: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  listenerRowAvatar: {
+    marginLeft: 10,
+  },
+  smallAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  },
+  smallAvatarFallback: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  smallAvatarText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: THEME.colors.textSecondary,
+  },
+  listenerRowName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: THEME.colors.textPrimary,
+  },
+  listenerRowBadge: {
+    fontSize: 11,
     color: THEME.colors.textSecondary,
     marginTop: 2,
   },
-  playsHighlight: {
-    flexDirection: 'row',
+  listenerCountBox: {
     alignItems: 'center',
-    marginTop: 8,
-    gap: 4,
+    minWidth: 44,
   },
-  playsHighlightText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: THEME.colors.amberGlow,
+  listenerCountNumber: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: THEME.colors.spotifyGreen,
   },
-  emptyCard: {
-    alignItems: 'center',
-    padding: 30,
+  listenerCountLabel: {
+    fontSize: 10,
+    color: THEME.colors.textMuted,
   },
-  emptyText: {
-    fontSize: 13,
-    color: THEME.colors.textSecondary,
-    textAlign: 'center',
-    marginTop: 10,
-  },
-  leaderboardRow: {
+  trackRow: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.03)',
@@ -327,53 +643,88 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   rankBadgeText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
-    textAlign: 'center',
   },
-  leaderboardThumb: {
-    width: 44,
-    height: 44,
+  trackThumb: {
+    width: 46,
+    height: 46,
     borderRadius: 6,
-    marginHorizontal: 8,
+    marginHorizontal: 10,
   },
-  leaderboardMeta: {
+  trackMeta: {
     flex: 1,
     marginRight: 10,
   },
-  leaderboardTitle: {
+  trackTitle: {
     fontSize: 14,
     fontWeight: '700',
     color: THEME.colors.textPrimary,
   },
-  leaderboardArtist: {
+  trackArtist: {
     fontSize: 12,
     color: THEME.colors.textSecondary,
-    marginTop: 1,
+    marginTop: 2,
   },
-  statBarBg: {
-    height: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 2,
-    marginTop: 6,
-    overflow: 'hidden',
-  },
-  statBarFill: {
-    height: '100%',
-    backgroundColor: THEME.colors.spotifyGreen,
-    borderRadius: 2,
-  },
-  countBox: {
+  trackSubMetaRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    minWidth: 40,
+    gap: 6,
+    marginTop: 4,
   },
-  countNumber: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: THEME.colors.spotifyGreen,
+  playsPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(255, 184, 0, 0.12)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
-  countLabel: {
+  playsPillText: {
     fontSize: 10,
+    fontWeight: '700',
+    color: THEME.colors.amberGlow,
+  },
+  bitratePill: {
+    backgroundColor: 'rgba(0, 242, 254, 0.1)',
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  bitratePillText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: THEME.colors.cyanNeon,
+  },
+  favBtnCol: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 34,
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+  },
+  favCount: {
+    fontSize: 10,
+    fontWeight: '700',
     color: THEME.colors.textMuted,
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  favCountActive: {
+    color: THEME.colors.pinkNeon,
+  },
+  loadingBox: {
+    padding: 30,
+    alignItems: 'center',
+  },
+  emptyCard: {
+    alignItems: 'center',
+    padding: 24,
+  },
+  emptyText: {
+    fontSize: 13,
+    color: THEME.colors.textMuted,
+    marginTop: 8,
   },
 });

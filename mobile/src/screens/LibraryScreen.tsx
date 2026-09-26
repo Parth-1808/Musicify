@@ -47,12 +47,18 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
   // Filter songs based on active tab & search query
   const getFilteredSongs = (): Song[] => {
     let list: Song[] = [];
-    if (isOfflineMode || activeTab === 'offline') {
-      list = offlineSongs;
-    } else if (activeTab === 'all') {
-      list = songs;
-    } else if (activeTab === 'favorites') {
-      list = songs.filter((s) => favorites.includes(s.id) || s.is_favorite);
+    if (isOfflineMode) {
+      list = activeTab === 'favorites'
+        ? offlineSongs.filter((s) => favorites.includes(s.id) || s.is_favorite)
+        : offlineSongs;
+    } else {
+      if (activeTab === 'all') {
+        list = songs;
+      } else if (activeTab === 'favorites') {
+        list = songs.filter((s) => favorites.includes(s.id) || s.is_favorite);
+      } else if (activeTab === 'offline') {
+        list = offlineSongs;
+      }
     }
 
     if (searchQuery.trim()) {
@@ -94,7 +100,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>Your Library</Text>
           <Text style={styles.subTitle}>
-            {isOfflineMode ? 'Offline Mode (Local only)' : `${songs.length} total tracks`}
+            {isOfflineMode ? `${offlineSongs.length} offline tracks` : `${songs.length} cloud tracks`}
           </Text>
         </View>
 
@@ -107,7 +113,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
             <Ionicons
               name={isOfflineMode ? 'cloud-offline' : 'cloud-done-outline'}
               size={15}
-              color={isOfflineMode ? THEME.colors.spotifyGreen : THEME.colors.textMuted}
+              color={isOfflineMode ? THEME.colors.spotifyGreen : THEME.colors.cyanNeon}
             />
             <Text
               style={[
@@ -152,26 +158,28 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
           style={[styles.tabPill, activeTab === 'all' && styles.activeTabPill]}
         >
           <Text style={[styles.tabText, activeTab === 'all' && styles.activeTabText]}>
-            All ({songs.length})
+            {isOfflineMode ? `Offline (${offlineSongs.length})` : `Cloud (${songs.length})`}
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          onPress={() => {
-            setActiveTab('offline');
-            setSelectedPlaylist(null);
-          }}
-          style={[styles.tabPill, activeTab === 'offline' && styles.activeTabPill]}
-        >
-          <Ionicons
-            name="arrow-down-circle"
-            size={14}
-            color={activeTab === 'offline' ? '#08090D' : THEME.colors.spotifyGreen}
-          />
-          <Text style={[styles.tabText, activeTab === 'offline' && styles.activeTabText]}>
-            Offline ({offlineSongs.length})
-          </Text>
-        </TouchableOpacity>
+        {!isOfflineMode && (
+          <TouchableOpacity
+            onPress={() => {
+              setActiveTab('offline');
+              setSelectedPlaylist(null);
+            }}
+            style={[styles.tabPill, activeTab === 'offline' && styles.activeTabPill]}
+          >
+            <Ionicons
+              name="arrow-down-circle"
+              size={14}
+              color={activeTab === 'offline' ? '#08090D' : THEME.colors.spotifyGreen}
+            />
+            <Text style={[styles.tabText, activeTab === 'offline' && styles.activeTabText]}>
+              Offline ({offlineSongs.length})
+            </Text>
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity
           onPress={() => {
@@ -185,17 +193,19 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          onPress={() => {
-            setActiveTab('playlists');
-            setSelectedPlaylist(null);
-          }}
-          style={[styles.tabPill, activeTab === 'playlists' && styles.activeTabPill]}
-        >
-          <Text style={[styles.tabText, activeTab === 'playlists' && styles.activeTabText]}>
-            Playlists ({playlists.length})
-          </Text>
-        </TouchableOpacity>
+        {!isOfflineMode && (
+          <TouchableOpacity
+            onPress={() => {
+              setActiveTab('playlists');
+              setSelectedPlaylist(null);
+            }}
+            style={[styles.tabPill, activeTab === 'playlists' && styles.activeTabPill]}
+          >
+            <Text style={[styles.tabText, activeTab === 'playlists' && styles.activeTabText]}>
+              Playlists ({playlists.length})
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Playlist Detail View */}

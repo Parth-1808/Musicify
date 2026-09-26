@@ -35,7 +35,7 @@ import { Song } from './src/types';
 type ScreenTab = 'home' | 'library' | 'stats' | 'settings';
 
 function MainNavigator() {
-  const { user, isGuest } = useAuth();
+  const { user } = useAuth();
   const { currentSong } = useMusic();
 
   const [activeTab, setActiveTab] = useState<ScreenTab>('home');
@@ -61,8 +61,8 @@ function MainNavigator() {
       });
   }, []);
 
-  // If not logged in and not guest, show AuthScreen
-  if (!user && !isGuest) {
+  // If not logged in, show AuthScreen
+  if (!user) {
     return <AuthScreen />;
   }
 

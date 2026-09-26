@@ -207,8 +207,9 @@ export const NativeExtractor = {
 
     const chosenStream = audioStreams[0];
     const streamUrl = chosenStream.url;
+    const isOpus = (chosenStream.mimeType || '').includes('opus');
     const isM4A = (chosenStream.mimeType || '').includes('mp4') || (chosenStream.mimeType || '').includes('m4a');
-    const format = isM4A ? 'm4a' : 'mp3';
+    const format = isOpus ? 'opus' : isM4A ? 'm4a' : 'mp3';
 
     // Duration calculation
     const durationSeconds =
@@ -244,7 +245,7 @@ export const NativeExtractor = {
       thumbnail,
       streamUrl,
       format,
-      bitrate: 'Ultra Hi-Fi 320k Studio Master @ 48kHz',
+      bitrate: isOpus ? 'Opus ~160kbps (Native)' : isM4A ? 'AAC ~128kbps (Native)' : 'Native Stream',
       sourceUrl: standardUrl,
     };
   },

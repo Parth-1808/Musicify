@@ -51,6 +51,17 @@ export const SongListItem: React.FC<SongListItemProps> = ({
     return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
+  const formatLikes = (count?: number) => {
+    if (count === undefined || count === null || count < 0) return '0';
+    if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
+    if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
+    return `${count}`;
+  };
+
+  const likesDisplay = formatLikes(
+    song.likes_count ?? (isFav ? 1 : 0)
+  );
+
   const handleDownload = async () => {
     try {
       setDownloading(true);
@@ -167,17 +178,21 @@ export const SongListItem: React.FC<SongListItemProps> = ({
           </View>
         </View>
 
-        {/* Favorite Icon */}
+        {/* Favorite Icon with Likes Count */}
         <TouchableOpacity
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           onPress={() => toggleFavorite(song.id)}
           style={styles.favButton}
+          accessibilityLabel="Like Track"
         >
           <Ionicons
             name={isFav ? 'heart' : 'heart-outline'}
-            size={20}
-            color={isFav ? THEME.colors.spotifyGreen : THEME.colors.textMuted}
+            size={19}
+            color={isFav ? THEME.colors.pinkNeon : THEME.colors.textMuted}
           />
+          <Text style={[styles.favCountText, isFav && styles.favCountTextActive]}>
+            {likesDisplay}
+          </Text>
         </TouchableOpacity>
 
         {/* Three Dots Menu Button on Far Right */}
@@ -440,7 +455,21 @@ const styles = StyleSheet.create({
     color: THEME.colors.cyanNeon,
   },
   favButton: {
-    padding: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 34,
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+  },
+  favCountText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: THEME.colors.textMuted,
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  favCountTextActive: {
+    color: THEME.colors.pinkNeon,
   },
   moreButton: {
     width: 34,
