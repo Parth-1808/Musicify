@@ -23,6 +23,15 @@ from mutagen.mp4 import MP4, MP4Cover
 from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, TIT2, TPE1, TALB, APIC
 
+try:
+    from server.ml_restoration import should_apply_ml_restoration, restore_low_bitrate_audio
+except ImportError:
+    try:
+        from ml_restoration import should_apply_ml_restoration, restore_low_bitrate_audio
+    except ImportError:
+        should_apply_ml_restoration = None
+        restore_low_bitrate_audio = None
+
 logger = logging.getLogger("musify.audio_pipeline")
 if not logger.handlers:
     handler = logging.StreamHandler()
@@ -354,15 +363,27 @@ def measure_loudness(file_path: Path) -> Dict[str, float]:
     ffmpeg_bin = get_ffmpeg_binary()
     cmd = [
         ffmpeg_bin,
+        "-y",
         "-i", str(file_path),
+        "-vn",
         "-af", "loudnorm=I=-14:TP=-1:LRA=11:print_format=json",
         "-f", "null",
         "-"
     ]
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode != 0:
-        logger.error("Loudness measurement failed on %s: %s", file_path, res.stderr[-300:])
-        raise RuntimeError(f"Loudness measurement failed: {res.stderr[-300:]}")
+        try:
+            parsed = parse_loudnorm_output(res.stderr)
+            logger.warning("FFmpeg returned non-zero code %d, but loudnorm JSON was successfully parsed.", res.returncode)
+            return {
+                "integrated_lufs": parsed["input_i"],
+                "true_peak_dbtp": parsed["input_tp"],
+                "loudness_range": parsed["input_lra"],
+                "loudness_threshold": parsed["input_thresh"],
+            }
+        except Exception:
+            logger.error("Loudness measurement failed on %s: %s", file_path, res.stderr[-300:])
+            raise RuntimeError(f"Loudness measurement failed: {res.stderr[-300:]}")
 
     parsed = parse_loudnorm_output(res.stderr)
     return {
@@ -407,7 +428,8 @@ def process_audio_source(
     album: str = "Musify",
     artwork_path: Optional[Path] = None,
     export_mp3_compat: bool = False,
-    preferred_platform: str = "android"
+    preferred_platform: str = "android",
+    enable_ml_restoration: bool = False
 ) -> Dict[str, Any]:
     """
     Source-agnostic audio processing pipeline.
@@ -445,11 +467,33 @@ def process_audio_source(
     variants: Dict[str, Dict[str, Any]] = {}
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # 2.5 Optional ML restoration for low-bitrate sources (< 128 kbps)
+    active_source = source_file
+    ml_metrics: Optional[Dict[str, Any]] = None
+    ml_applied = False
+    ml_rationale = "ML restoration disabled by default."
+    restored_tmp: Optional[Path] = None
+
+    if should_apply_ml_restoration:
+        should_restore, ml_rationale = should_apply_ml_restoration(probe_info, enable_ml_restoration=enable_ml_restoration)
+        if should_restore and restore_low_bitrate_audio:
+            logger.info("Applying ML restoration to low-bitrate source %s: %s", source_file.name, ml_rationale)
+            restored_tmp = output_dir / f"{song_id}_restored_temp{source_file.suffix}"
+            try:
+                ml_metrics = restore_low_bitrate_audio(source_file, restored_tmp, probe_info)
+                active_source = restored_tmp
+                ml_applied = True
+            except Exception as e:
+                logger.warning("ML restoration failed, falling back to original source: %s", e)
+                active_source = source_file
+        else:
+            logger.info("ML restoration skipped: %s", ml_rationale)
+
     # 3 & 4. Platform delivery & Remux vs Transcode (Never re-encode lossy > 1 time)
     if "opus" in source_codec:
         # Opus source -> Stream copy to .opus (0 generational loss)
         opus_path = output_dir / f"{song_id}.opus"
-        remux_audio(source_file, opus_path)
+        remux_audio(active_source, opus_path)
         tag_audio_file(opus_path, title, artist, album, artwork_path)
         variants["opus"] = {
             "path": str(opus_path),
@@ -462,7 +506,7 @@ def process_audio_source(
 
         # Transcode once to AAC for iOS platform delivery
         m4a_path = output_dir / f"{song_id}.m4a"
-        transcode_aac(source_file, m4a_path, bitrate_kbps=source_bitrate or 160)
+        transcode_aac(active_source, m4a_path, bitrate_kbps=source_bitrate or 160)
         tag_audio_file(m4a_path, title, artist, album, artwork_path)
         variants["aac"] = {
             "path": str(m4a_path),
@@ -476,7 +520,7 @@ def process_audio_source(
     elif "aac" in source_codec:
         # AAC source -> Stream copy to .m4a (0 generational loss)
         m4a_path = output_dir / f"{song_id}.m4a"
-        remux_audio(source_file, m4a_path)
+        remux_audio(active_source, m4a_path)
         tag_audio_file(m4a_path, title, artist, album, artwork_path)
         variants["aac"] = {
             "path": str(m4a_path),
@@ -489,7 +533,7 @@ def process_audio_source(
 
         # Transcode once to Opus for Android/Web platform delivery
         opus_path = output_dir / f"{song_id}.opus"
-        transcode_opus(source_file, opus_path, bitrate_kbps=source_bitrate or 160)
+        transcode_opus(active_source, opus_path, bitrate_kbps=source_bitrate or 160)
         tag_audio_file(opus_path, title, artist, album, artwork_path)
         variants["opus"] = {
             "path": str(opus_path),
@@ -503,7 +547,7 @@ def process_audio_source(
     elif "mp3" in source_codec:
         # MP3 source -> Stream copy to .mp3 (0 generational loss)
         mp3_path = output_dir / f"{song_id}.mp3"
-        remux_audio(source_file, mp3_path)
+        remux_audio(active_source, mp3_path)
         tag_audio_file(mp3_path, title, artist, album, artwork_path)
         variants["mp3"] = {
             "path": str(mp3_path),
@@ -517,7 +561,7 @@ def process_audio_source(
     else:
         # Lossless or other source (FLAC, WAV, ALAC, etc.) -> Encode once to Opus & AAC
         opus_path = output_dir / f"{song_id}.opus"
-        transcode_opus(source_file, opus_path, bitrate_kbps=160)
+        transcode_opus(active_source, opus_path, bitrate_kbps=160)
         tag_audio_file(opus_path, title, artist, album, artwork_path)
         variants["opus"] = {
             "path": str(opus_path),
@@ -529,7 +573,7 @@ def process_audio_source(
         }
 
         m4a_path = output_dir / f"{song_id}.m4a"
-        transcode_aac(source_file, m4a_path, bitrate_kbps=160)
+        transcode_aac(active_source, m4a_path, bitrate_kbps=160)
         tag_audio_file(m4a_path, title, artist, album, artwork_path)
         variants["aac"] = {
             "path": str(m4a_path),
@@ -543,7 +587,7 @@ def process_audio_source(
     # 5. Optional MP3 Compatibility export
     if export_mp3_compat and "mp3" not in variants:
         mp3_path = output_dir / f"{song_id}.mp3"
-        export_mp3_compatibility(source_file, mp3_path)
+        export_mp3_compatibility(active_source, mp3_path)
         tag_audio_file(mp3_path, title, artist, album, artwork_path)
         variants["mp3"] = {
             "path": str(mp3_path),
@@ -595,6 +639,13 @@ def process_audio_source(
         elapsed_ms, primary_variant["filename"], primary_variant["label"], len(variants)
     )
 
+    # Clean up temporary restored audio file if created
+    if restored_tmp and restored_tmp.exists():
+        try:
+            restored_tmp.unlink()
+        except Exception:
+            pass
+
     return {
         "song_id": song_id,
         "content_hash": content_hash,
@@ -605,6 +656,9 @@ def process_audio_source(
             "channels": channels,
             "duration": duration,
         },
+        "ml_restored": ml_applied,
+        "ml_metrics": ml_metrics,
+        "ml_rationale": ml_rationale,
         "loudness": loudness_info,
         "variants": variants,
         "primary_key": primary_key,

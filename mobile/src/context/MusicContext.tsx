@@ -5,6 +5,12 @@ import { audioService } from '../services/audioService';
 import { StorageService } from '../services/storageService';
 import { ApiService } from '../services/apiService';
 import { useAuth } from './AuthContext';
+import {
+  dspEngine,
+  DSPSettings,
+  EQPresetName,
+  LoudnessGainResult,
+} from '../services/dspEngine';
 
 interface MusicContextType {
   // Songs & Playlists State
@@ -61,9 +67,19 @@ interface MusicContextType {
   toastIcon: string;
   showToast: (message: string, icon?: string) => void;
 
-  // Hi-Fi Audio Equalizer Engine
+  // Hi-Fi Audio Equalizer Engine & Real-Time DSP (Phase 3)
   eqPreset: 'studio_master' | 'bass_boost' | 'vocal_clarity' | 'pure_direct';
   setEqPreset: (preset: 'studio_master' | 'bass_boost' | 'vocal_clarity' | 'pure_direct') => void;
+  dspSettings: DSPSettings;
+  updateDSPSettings: (settings: Partial<DSPSettings>) => void;
+  setEQBand: (index: number, gainDb: number) => void;
+  applyEQPreset: (preset: EQPresetName) => void;
+  resetDSPToDefaults: () => void;
+  currentNormalizationInfo: {
+    normGain: LoudnessGainResult | null;
+    songLufs: number | null;
+    songTruePeak: number | null;
+  };
 
   // Offline Mode Toggle
   isOfflineMode: boolean;
@@ -111,18 +127,55 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastIcon, setToastIcon] = useState<string>('checkmark-circle');
 
-  // Audiophile Hi-Fi EQ Preset state
+  // Audiophile Hi-Fi EQ Preset state (legacy compatibility)
   const [eqPreset, setEqPresetState] = useState<'studio_master' | 'bass_boost' | 'vocal_clarity' | 'pure_direct'>('studio_master');
+
+  // Real-Time DSP Audio Enhancement Engine State (Phase 3)
+  const [dspSettings, setDspSettings] = useState<DSPSettings>(dspEngine.getSettings());
+  const [normalizationInfo, setNormalizationInfo] = useState<{
+    normGain: LoudnessGainResult | null;
+    songLufs: number | null;
+    songTruePeak: number | null;
+  }>({ normGain: null, songLufs: null, songTruePeak: null });
+
+  useEffect(() => {
+    const unsub = dspEngine.subscribe((settings) => {
+      setDspSettings(settings);
+      setNormalizationInfo(audioService.getCurrentNormalizationInfo());
+    });
+    return unsub;
+  }, []);
+
+  const updateDSPSettings = (partial: Partial<DSPSettings>) => {
+    dspEngine.updateSettings(partial);
+  };
+
+  const setEQBand = (index: number, gainDb: number) => {
+    dspEngine.setEQBand(index, gainDb);
+  };
+
+  const applyEQPreset = (preset: EQPresetName) => {
+    dspEngine.applyPreset(preset);
+    showToast(`EQ: ${preset}`, 'options');
+  };
+
+  const resetDSPToDefaults = () => {
+    dspEngine.resetToDefaults();
+    showToast('DSP settings reset to defaults', 'refresh');
+  };
 
   const setEqPreset = (preset: 'studio_master' | 'bass_boost' | 'vocal_clarity' | 'pure_direct') => {
     setEqPresetState(preset);
-    const names = {
-      studio_master: 'Studio Master (48kHz)',
-      bass_boost: 'Bass Boost HD (Warm sub-bass)',
-      vocal_clarity: 'Vocal Clarity (Crisp mids)',
-      pure_direct: 'Pure Direct (Bit-perfect bypass)',
-    };
-    showToast(`EQ: ${names[preset]}`, 'options');
+    if (preset === 'bass_boost') {
+      applyEQPreset('Bass Boost');
+    } else if (preset === 'vocal_clarity') {
+      applyEQPreset('Vocal');
+    } else if (preset === 'pure_direct') {
+      updateDSPSettings({ enhancementEnabled: false });
+      showToast('DSP: Pure Direct (Bypass)', 'options');
+    } else {
+      applyEQPreset('Flat');
+    }
   };
 
   const showToast = (message: string, icon = 'checkmark-circle') => {
@@ -197,6 +250,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setPositionMillis(status.positionMillis);
       setDurationMillis(status.durationMillis);
       setIsBuffering(status.isBuffering);
+      setNormalizationInfo(audioService.getCurrentNormalizationInfo());
     });
 
     audioService.setTrackFinishedCallback(() => {
@@ -658,6 +712,12 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         showToast,
         eqPreset,
         setEqPreset,
+        dspSettings,
+        updateDSPSettings,
+        setEQBand,
+        applyEQPreset,
+        resetDSPToDefaults,
+        currentNormalizationInfo: normalizationInfo,
         isOfflineMode,
         toggleOfflineMode,
         playSong,

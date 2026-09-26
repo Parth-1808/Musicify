@@ -25,6 +25,7 @@ from server.audio_pipeline import (
     tag_opus,
     tag_m4a,
     tag_mp3,
+    measure_loudness,
     process_audio_source,
     get_ffmpeg_binary
 )
@@ -227,6 +228,76 @@ class TestAudioPipeline(unittest.TestCase):
             self.assertEqual(res["primary_key"], "opus")
             self.assertTrue(res["variants"]["opus"]["remuxed"])
             self.assertFalse(res["variants"]["mp3"]["remuxed"])
+
+    def test_measure_loudness_real_audio(self):
+        """Test non-destructive EBU R128 loudness measurement on generated audio."""
+        with tempfile.TemporaryDirectory() as td:
+            audio_file = Path(td) / "loud_test.opus"
+            subprocess.run([
+                self.ffmpeg, "-y",
+                "-f", "lavfi", "-i", "sine=frequency=1000:duration=3",
+                "-c:a", "libopus", "-b:a", "128k",
+                str(audio_file)
+            ], check=True, capture_output=True)
+
+            loudness = measure_loudness(audio_file)
+            self.assertIn("integrated_lufs", loudness)
+            self.assertIn("true_peak_dbtp", loudness)
+            self.assertIn("loudness_range", loudness)
+            self.assertIn("loudness_threshold", loudness)
+            self.assertIsInstance(loudness["integrated_lufs"], float)
+            self.assertIsInstance(loudness["true_peak_dbtp"], float)
+            # Sine wave loudness should be between -30 and 0 LUFS
+            self.assertLess(loudness["integrated_lufs"], 0.0)
+            self.assertGreater(loudness["integrated_lufs"], -35.0)
+
+    def test_measure_loudness_with_embedded_artwork(self):
+        """Test that measure_loudness succeeds on audio with attached picture streams."""
+        with tempfile.TemporaryDirectory() as td:
+            audio_file = Path(td) / "tagged_test.mp3"
+            art_file = Path(td) / "art.jpg"
+            art_file.write_bytes(
+                b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00`\x00`\x00\x00\xff\xdb\x00C\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t\x08\n\x0c\x14\r\x0c\x0b\x0b\x0c\x19\x12\x13\x0f\x14\x1d\x1a\x1f\x1e\x1d\x1a\x1c\x1c $.' \",#\x1c\x1c(7),01444\x1f'9=82<.342\xff\xc0\x00\x0b\x08\x00\x01\x00\x01\x01\x01\x11\x00\xff\xc4\x00\x1f\x00\x00\x01\x05\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\xff\xda\x00\x08\x01\x01\x00\x00?\x00\xbf\x00\xff\xd9"
+            )
+            subprocess.run([
+                self.ffmpeg, "-y",
+                "-f", "lavfi", "-i", "sine=d=2",
+                "-c:a", "libmp3lame",
+                str(audio_file)
+            ], check=True, capture_output=True)
+
+            tag_mp3(audio_file, title="Test Art Track", artist="Artist", album="Album", artwork_path=art_file)
+
+            # This must succeed without exit code 69 or failure
+            loudness = measure_loudness(audio_file)
+            self.assertIn("integrated_lufs", loudness)
+            self.assertIsInstance(loudness["integrated_lufs"], float)
+
+    def test_process_audio_source_with_ml_restoration(self):
+        """Test process_audio_source with opt-in ML restoration on a low-bitrate stream."""
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "low_source.opus"
+            output_dir = Path(td) / "output"
+            subprocess.run([
+                self.ffmpeg, "-y",
+                "-f", "lavfi", "-i", "sine=frequency=3000:duration=2",
+                "-af", "lowpass=f=9000",
+                "-c:a", "libopus", "-b:a", "64k",
+                str(source)
+            ], check=True, capture_output=True)
+
+            res = process_audio_source(
+                source_file=source,
+                output_dir=output_dir,
+                song_id="ml-test-5555",
+                title="Low Bitrate Track",
+                artist="Artist Test",
+                enable_ml_restoration=True
+            )
+
+            self.assertTrue(res["ml_restored"])
+            self.assertIsNotNone(res["ml_metrics"])
+            self.assertGreater(res["ml_metrics"]["hf_bandwidth_gain_db"], 0.0)
 
 
 if __name__ == "__main__":

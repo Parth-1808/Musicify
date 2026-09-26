@@ -18,6 +18,15 @@ export interface Song {
   is_favorite?: boolean;
   user_id?: string;
   created_at?: string;
+  integrated_lufs?: number;
+  true_peak_dbtp?: number;
+  loudness_range?: number;
+  content_hash?: string;
+  source_codec?: string;
+  source_bitrate_kbps?: number;
+  sample_rate?: number;
+  channels?: number;
+  audio_version?: number;
 }
 
 export interface Playlist {

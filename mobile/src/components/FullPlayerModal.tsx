@@ -20,6 +20,7 @@ import { THEME } from '../theme/theme';
 import { GlassCard } from './GlassCard';
 
 import { SleepTimerModal } from './SleepTimerModal';
+import { AudioEnhancementModal } from './AudioEnhancementModal';
 
 interface FullPlayerModalProps {
   visible: boolean;
@@ -93,6 +94,8 @@ export const FullPlayerModal: React.FC<FullPlayerModalProps> = ({
     isSleepTimerEndOfTrack,
     eqPreset,
     setEqPreset,
+    dspSettings,
+    applyEQPreset,
     showToast,
   } = useMusic();
 
@@ -100,6 +103,7 @@ export const FullPlayerModal: React.FC<FullPlayerModalProps> = ({
   const [seekValue, setSeekValue] = useState(0);
   const [downloading, setDownloading] = useState(false);
   const [sleepTimerVisible, setSleepTimerVisible] = useState(false);
+  const [audioEnhanceVisible, setAudioEnhanceVisible] = useState(false);
 
   if (!currentSong) return null;
 
@@ -281,13 +285,26 @@ export const FullPlayerModal: React.FC<FullPlayerModalProps> = ({
             </TouchableOpacity>
           </View>
 
-          {/* Audiophile Studio Master & Sound Wave Section */}
+          {/* Real-Time DSP Audio Engine & Equalizer Section (Phase 3) */}
           <View style={styles.audiophileEngineSection}>
             <View style={styles.audiophileHeaderRow}>
-              <View style={styles.hiResBadge}>
-                <Ionicons name="hardware-chip-outline" size={13} color={THEME.colors.goldMetallic} />
-                <Text style={styles.hiResBadgeText}>24-BIT / 48kHz STUDIO MASTER</Text>
-              </View>
+              <TouchableOpacity
+                style={styles.hiResBadge}
+                activeOpacity={0.75}
+                onPress={() => setAudioEnhanceVisible(true)}
+              >
+                <Ionicons
+                  name="sparkles"
+                  size={13}
+                  color={dspSettings.enhancementEnabled ? THEME.colors.cyanNeon : THEME.colors.textMuted}
+                />
+                <Text style={styles.hiResBadgeText}>
+                  {dspSettings.enhancementEnabled
+                    ? `DSP: ${dspSettings.eqPreset.toUpperCase()} | ${Math.round(dspSettings.spatialWidth * 100)}% WIDTH`
+                    : 'DSP ENHANCEMENT: OFF'}
+                </Text>
+                <Ionicons name="chevron-forward" size={12} color={THEME.colors.cyanNeon} />
+              </TouchableOpacity>
               <SoundWaveVisualizer isPlaying={isPlaying} />
             </View>
 
@@ -295,24 +312,25 @@ export const FullPlayerModal: React.FC<FullPlayerModalProps> = ({
             <View style={styles.eqPillsRow}>
               {(
                 [
-                  { id: 'studio_master', label: 'Studio Master', icon: 'disc' },
-                  { id: 'bass_boost', label: 'Bass Boost HD', icon: 'radio' },
-                  { id: 'vocal_clarity', label: 'Vocal Clarity', icon: 'mic-outline' },
-                  { id: 'pure_direct', label: 'Pure Direct', icon: 'flash-outline' },
+                  { id: 'Musify Signature', label: 'Universal', icon: 'sparkles' },
+                  { id: 'Flat', label: 'Flat', icon: 'remove-outline' },
+                  { id: 'Bass Boost', label: 'Bass Boost', icon: 'radio' },
+                  { id: 'Vocal', label: 'Vocal', icon: 'mic-outline' },
+                  { id: 'Electronic', label: 'Electronic', icon: 'flash-outline' },
                 ] as const
               ).map((preset) => {
-                const isActive = eqPreset === preset.id;
+                const isActive = dspSettings.eqPreset === preset.id;
                 return (
                   <TouchableOpacity
                     key={preset.id}
                     activeOpacity={0.7}
-                    onPress={() => setEqPreset(preset.id)}
+                    onPress={() => applyEQPreset(preset.id)}
                     style={[styles.eqPill, isActive && styles.eqPillActive]}
                   >
                     <Ionicons
                       name={preset.icon as any}
                       size={12}
-                      color={isActive ? THEME.colors.spotifyGreen : THEME.colors.textMuted}
+                      color={isActive ? THEME.colors.cyanNeon : THEME.colors.textMuted}
                     />
                     <Text style={[styles.eqPillText, isActive && styles.eqPillTextActive]}>
                       {preset.label}
@@ -320,6 +338,14 @@ export const FullPlayerModal: React.FC<FullPlayerModalProps> = ({
                   </TouchableOpacity>
                 );
               })}
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => setAudioEnhanceVisible(true)}
+                style={[styles.eqPill, { borderColor: THEME.colors.cyanNeon }]}
+              >
+                <Ionicons name="options-outline" size={12} color={THEME.colors.cyanNeon} />
+                <Text style={[styles.eqPillText, { color: THEME.colors.cyanNeon }]}>Tune</Text>
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -435,6 +461,22 @@ export const FullPlayerModal: React.FC<FullPlayerModalProps> = ({
               </Text>
             </TouchableOpacity>
 
+            <TouchableOpacity onPress={() => setAudioEnhanceVisible(true)} style={styles.bottomBarItem}>
+              <MaterialCommunityIcons
+                name="equalizer"
+                size={22}
+                color={dspSettings.enhancementEnabled ? THEME.colors.cyanNeon : THEME.colors.textSecondary}
+              />
+              <Text
+                style={[
+                  styles.bottomBarText,
+                  dspSettings.enhancementEnabled && { color: THEME.colors.cyanNeon },
+                ]}
+              >
+                DSP Audio
+              </Text>
+            </TouchableOpacity>
+
             <TouchableOpacity onPress={onOpenQueue} style={styles.bottomBarItem}>
               <Ionicons name="list" size={22} color={THEME.colors.textSecondary} />
               <Text style={styles.bottomBarText}>Up Next</Text>
@@ -446,6 +488,12 @@ export const FullPlayerModal: React.FC<FullPlayerModalProps> = ({
         <SleepTimerModal
           visible={sleepTimerVisible}
           onClose={() => setSleepTimerVisible(false)}
+        />
+
+        {/* Real-Time Audio Enhancement & Equalizer Modal */}
+        <AudioEnhancementModal
+          visible={audioEnhanceVisible}
+          onClose={() => setAudioEnhanceVisible(false)}
         />
       </View>
     </Modal>
