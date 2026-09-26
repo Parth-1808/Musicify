@@ -27,6 +27,7 @@ import { DownloadModal } from './src/components/DownloadModal';
 import { QueueModal } from './src/components/QueueModal';
 import { PlaylistModal } from './src/components/PlaylistModal';
 import { EnvironmentSetupModal } from './src/components/EnvironmentSetupModal';
+import { StorageService } from './src/services/storageService';
 import { GlassToast } from './src/components/GlassToast';
 import { Song } from './src/types';
 
@@ -47,8 +48,9 @@ function MainNavigator() {
   const [isRecalibrating, setIsRecalibrating] = useState(false);
 
   useEffect(() => {
-    AsyncStorage.getItem('MUSIFY_ENV_ESTABLISHED').then((val) => {
-      if (val !== 'true') {
+    // Only show on the very first opening if it has NEVER been established before
+    StorageService.isEnvironmentEstablished().then((isEstablished) => {
+      if (!isEstablished) {
         setEnvSetupVisible(true);
       }
     });
@@ -242,7 +244,8 @@ function MainNavigator() {
       <EnvironmentSetupModal
         visible={envSetupVisible}
         isRecalibration={isRecalibrating}
-        onClose={() => {
+        onClose={async () => {
+          await StorageService.markEnvironmentEstablished();
           setEnvSetupVisible(false);
           setIsRecalibrating(false);
         }}

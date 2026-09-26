@@ -10,6 +10,8 @@ const FAVORITES_KEY = 'MUSIFY_FAVORITES';
 const BASE_MUSIC_DIR = `${FileSystem.documentDirectory || ''}musify/`;
 const SONGS_DIR = `${BASE_MUSIC_DIR}songs/`;
 const ARTWORK_DIR = `${BASE_MUSIC_DIR}artwork/`;
+const ENV_MARKER_FILE = `${BASE_MUSIC_DIR}env_established.json`;
+const ENV_STORAGE_KEY = 'MUSIFY_ENV_ESTABLISHED';
 
 async function ensureDirectories() {
   if (Platform.OS === 'web' || !FileSystem.documentDirectory) return;
@@ -25,6 +27,52 @@ async function ensureDirectories() {
 export const StorageService = {
   async init() {
     await ensureDirectories();
+  },
+
+  /**
+   * Check whether the local GPU & audio environment has already been established once.
+   * Checks both AsyncStorage and permanent on-device filesystem marker so it is NEVER requested again.
+   */
+  async isEnvironmentEstablished(): Promise<boolean> {
+    try {
+      const flag = await AsyncStorage.getItem(ENV_STORAGE_KEY);
+      if (flag === 'true') return true;
+
+      if (Platform.OS !== 'web' && FileSystem.documentDirectory) {
+        const info = await FileSystem.getInfoAsync(ENV_MARKER_FILE);
+        if (info.exists) {
+          await AsyncStorage.setItem(ENV_STORAGE_KEY, 'true');
+          return true;
+        }
+      }
+    } catch (e) {
+      console.warn('Error checking environment establishment:', e);
+    }
+    return false;
+  },
+
+  /**
+   * Permanently marks the environment as established.
+   * Saves to both AsyncStorage and disk file so subsequent app opens never re-download or re-establish.
+   */
+  async markEnvironmentEstablished(sizeMB: number = 42.8): Promise<void> {
+    try {
+      await AsyncStorage.setItem(ENV_STORAGE_KEY, 'true');
+      await AsyncStorage.setItem('MUSIFY_ENV_SIZE_MB', sizeMB.toString());
+      await AsyncStorage.setItem('MUSIFY_ENV_ESTABLISHED_DATE', new Date().toISOString());
+
+      if (Platform.OS !== 'web' && FileSystem.documentDirectory) {
+        await ensureDirectories();
+        const payload = JSON.stringify({
+          established: true,
+          sizeMB,
+          date: new Date().toISOString(),
+        });
+        await FileSystem.writeAsStringAsync(ENV_MARKER_FILE, payload);
+      }
+    } catch (e) {
+      console.warn('Error saving environment marker:', e);
+    }
   },
 
   async getOfflineSongs(): Promise<Song[]> {

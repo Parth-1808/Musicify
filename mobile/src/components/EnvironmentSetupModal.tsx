@@ -16,6 +16,7 @@ import { THEME } from '../theme/theme';
 import { GlassCard } from './GlassCard';
 import { GlassButton } from './GlassButton';
 import { getBackendUrl } from '../config/supabase';
+import { StorageService } from '../services/storageService';
 
 interface EnvironmentSetupModalProps {
   visible: boolean;
@@ -71,10 +72,13 @@ export const EnvironmentSetupModal: React.FC<EnvironmentSetupModalProps> = ({
     }
   };
 
-  const handleStartSetup = () => {
+  const handleStartSetup = async () => {
     setIsInstalling(true);
     setDownloadProgress(0);
     setDownloadedMB(0);
+
+    // Save permanently immediately so state is never lost even if interrupted or closed
+    await StorageService.markEnvironmentEstablished(TOTAL_ENV_MB);
 
     const steps = [
       {
@@ -120,18 +124,13 @@ export const EnvironmentSetupModal: React.FC<EnvironmentSetupModalProps> = ({
   };
 
   const finishSetup = async () => {
-    try {
-      await AsyncStorage.setItem('MUSIFY_ENV_ESTABLISHED', 'true');
-      await AsyncStorage.setItem('MUSIFY_ENV_SIZE_MB', TOTAL_ENV_MB.toString());
-      await AsyncStorage.setItem('MUSIFY_ENV_ESTABLISHED_DATE', new Date().toISOString());
-    } catch (e) {
-      console.warn('Failed to save env status:', e);
-    }
+    await StorageService.markEnvironmentEstablished(TOTAL_ENV_MB);
     setIsInstalling(false);
     setIsComplete(true);
   };
 
-  const handleCompleteAndEnter = () => {
+  const handleCompleteAndEnter = async () => {
+    await StorageService.markEnvironmentEstablished(TOTAL_ENV_MB);
     setIsComplete(false);
     setDownloadProgress(0);
     onClose();
