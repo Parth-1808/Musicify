@@ -14,9 +14,11 @@ import {
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
-import { QUALITY_OPTIONS, AudioQualityOption, Song } from '../types';
+import { LinearGradient } from 'expo-linear-gradient';
+import { QUALITY_OPTIONS, Song } from '../types';
 import { THEME } from '../theme/theme';
 import { ApiService } from '../services/apiService';
+import { NativeExtractor } from '../services/nativeExtractor';
 import { useMusic } from '../context/MusicContext';
 import { useAuth } from '../context/AuthContext';
 import { GlassCard } from './GlassCard';
@@ -34,7 +36,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
   onSuccess,
 }) => {
   const { user } = useAuth();
-  const { refreshSongs, playSong, showToast } = useMusic();
+  const { songs, refreshSongs, playSong, showToast } = useMusic();
 
   const [url, setUrl] = useState('');
   const selectedQuality = QUALITY_OPTIONS[0];
@@ -43,14 +45,18 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [previewInfo, setPreviewInfo] = useState<any | null>(null);
 
-  // Download state
+  // Offline toggle state (Default FALSE: keep in Cloud only, do not download offline unless requested)
+  const [downloadOffline, setDownloadOffline] = useState(false);
+
+  // Download & filler progress state
   const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadStep, setDownloadStep] = useState<string>('');
 
   const handlePaste = async () => {
     try {
       const text = await Clipboard.getStringAsync();
-      if (text && (text.includes('youtube.com') || text.includes('youtu.be'))) {
+      if (text && (text.includes('youtube.com') || text.includes('youtu.be') || /^[a-zA-Z0-9_-]{11}$/.test(text.trim()))) {
         setUrl(text.trim());
         fetchPreview(text.trim());
       } else {
@@ -68,7 +74,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
       const info = await ApiService.getYouTubeInfo(videoUrl);
       setPreviewInfo(info);
     } catch (e: any) {
-      console.warn('Preview error:', e);
+      console.warn('Preview notice:', e);
     } finally {
       setLoadingPreview(false);
     }
@@ -80,31 +86,77 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
       return;
     }
 
+    // 1. DUPLICATE CHECK: Prevent re-downloading if song is already in user's tracks
+    const videoId = NativeExtractor.extractVideoId(url.trim());
+    const existingSong = songs.find((s) => {
+      if (videoId && (s.id === videoId || s.source_id === videoId)) return true;
+      if (s.source_url && videoId && s.source_url.includes(videoId)) return true;
+      if (
+        previewInfo?.title &&
+        s.title.toLowerCase().trim() === previewInfo.title.toLowerCase().trim()
+      ) {
+        return true;
+      }
+      return false;
+    });
+
+    if (existingSong) {
+      Alert.alert(
+        'Already in Your Tracks',
+        `"${existingSong.title}" is already in your library. No need to download it again!`,
+        [
+          { text: 'Close', style: 'cancel', onPress: resetAndClose },
+          {
+            text: 'Play Now',
+            onPress: async () => {
+              resetAndClose();
+              await playSong(existingSong);
+            },
+          },
+        ]
+      );
+      return;
+    }
+
+    // 2. Start Download with animated Filler Progress Bar
     try {
       setIsDownloading(true);
-      setDownloadStep('Extracting 320kbps Studio Master audio...');
+      setDownloadProgress(0.1);
+      setDownloadStep('Resolving YouTube audio stream...');
 
-      // 1. Download & convert on backend and upload to Supabase Cloud
       const result = await ApiService.downloadYouTubeAudio({
         url: url.trim(),
         quality: selectedQuality.id,
         userId: user?.id,
         uploadToSupabase: true,
+        saveOffline: downloadOffline,
+        onProgress: (progress, stepText) => {
+          setDownloadProgress(progress);
+          setDownloadStep(stepText);
+        },
       });
 
       if (!result.success || !result.song) {
-        throw new Error('Audio extraction failed on backend.');
+        throw new Error('Audio extraction failed.');
       }
 
-      const downloadedSong = result.song;
+      const savedSong = result.song;
 
-      setDownloadStep('Syncing to Cloud Library...');
+      setDownloadProgress(1.0);
+      setDownloadStep('Syncing library...');
       await refreshSongs();
-      showToast(`Saved "${downloadedSong.title}" to Cloud`, 'cloud-done');
+
+      if (downloadOffline) {
+        showToast(`Downloaded "${savedSong.title}" Offline`, 'download-done');
+      } else {
+        showToast(`Saved "${savedSong.title}" to Cloud Library`, 'cloud-done');
+      }
 
       Alert.alert(
-        'Saved to Cloud Library',
-        `"${downloadedSong.title}" is saved in your Cloud Library at 320kbps Studio Master quality.\n\nTo listen offline without internet, tap the 3-dots (⋮) on this track and choose "Download Song".`,
+        downloadOffline ? 'Downloaded Offline' : 'Saved to Cloud Library',
+        downloadOffline
+          ? `"${savedSong.title}" is downloaded and stored on your device for offline playback.`
+          : `"${savedSong.title}" is saved in your Cloud Library. You can stream it anytime or download it offline from the 3-dots (⋮) menu.`,
         [
           {
             text: 'Close',
@@ -117,17 +169,18 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
             text: 'Play Now',
             onPress: async () => {
               resetAndClose();
-              await playSong(downloadedSong);
+              await playSong(savedSong);
             },
           },
         ]
       );
 
-      if (onSuccess) onSuccess(downloadedSong);
+      if (onSuccess) onSuccess(savedSong);
     } catch (e: any) {
-      Alert.alert('Save Failed', e.message || 'Check backend server connection.');
+      Alert.alert('Save Failed', e.message || 'Please check network connection.');
     } finally {
       setIsDownloading(false);
+      setDownloadProgress(0);
       setDownloadStep('');
     }
   };
@@ -136,6 +189,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
     setUrl('');
     setPreviewInfo(null);
     setIsDownloading(false);
+    setDownloadProgress(0);
     setDownloadStep('');
     onClose();
   };
@@ -205,7 +259,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
                         <Ionicons name="time-outline" size={12} color={THEME.colors.textMuted} />
                         <Text style={styles.previewDuration}>
-                          {previewInfo.duration_formatted}
+                          {previewInfo.duration ? `${Math.floor(previewInfo.duration / 60)}:${(previewInfo.duration % 60).toString().padStart(2, '0')}` : 'Studio Audio'}
                         </Text>
                       </View>
                     </View>
@@ -222,43 +276,97 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                     <Text style={styles.qualityNameSelected}>320 kbps Ultra Studio Master</Text>
                   </View>
                   <View style={styles.badgePillGold}>
-                    <Text style={styles.badgePillGoldText}>320K MP3 @ 48kHz</Text>
+                    <Text style={styles.badgePillGoldText}>320K OPUS / M4A</Text>
                   </View>
                 </View>
                 <Text style={styles.qualityDesc}>
-                  High-bitrate studio master audio encoded at 48kHz with full dynamic range. Exceeds standard Spotify Free (160k) and matches Spotify Premium.
+                  Bit-perfect studio audio encoded at 48kHz with full dynamic range. Matches and exceeds Spotify Premium 320k.
                 </Text>
               </View>
 
-              {/* Cloud Sync Information Notice */}
-              <View style={styles.cloudNoticeRow}>
-                <View style={styles.cloudNoticeIconBox}>
-                  <Ionicons name="cloud-upload-outline" size={20} color={THEME.colors.spotifyGreen} />
-                </View>
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={styles.cloudNoticeTitle}>Saved to Cloud Library First</Text>
-                  <Text style={styles.cloudNoticeSub}>
-                    Just like Spotify, tracks are saved to your cloud library to stream on any device. Tap the 3-dots (⋮) anytime to download to local cache.
+              {/* Offline vs Cloud Storage Toggle */}
+              <View style={styles.offlineToggleRow}>
+                <View style={{ flex: 1, marginRight: 12 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Ionicons
+                      name={downloadOffline ? 'download' : 'cloud-outline'}
+                      size={18}
+                      color={downloadOffline ? THEME.colors.spotifyGreen : THEME.colors.textSecondary}
+                    />
+                    <Text style={styles.offlineToggleTitle}>
+                      {downloadOffline ? 'Download Offline (Phone Storage)' : 'Cloud Library Only'}
+                    </Text>
+                  </View>
+                  <Text style={styles.offlineToggleDesc}>
+                    {downloadOffline
+                      ? 'Downloads physical audio file to phone storage for playback without internet.'
+                      : 'Saves to your library for instant streaming without taking up device storage.'}
                   </Text>
                 </View>
+                <Switch
+                  value={downloadOffline}
+                  onValueChange={setDownloadOffline}
+                  trackColor={{ false: 'rgba(255, 255, 255, 0.1)', true: 'rgba(29, 185, 84, 0.4)' }}
+                  thumbColor={downloadOffline ? THEME.colors.spotifyGreen : '#888'}
+                />
               </View>
 
-              {/* Download Progress Message */}
+              {/* Download Filler Progress Bar */}
               {isDownloading && (
-                <View style={styles.downloadProgressCard}>
-                  <ActivityIndicator size="small" color={THEME.colors.spotifyGreen} />
-                  <Text style={styles.downloadStepText}>{downloadStep}</Text>
+                <View style={styles.fillerContainer}>
+                  <View style={styles.fillerHeader}>
+                    <View style={styles.fillerStepRow}>
+                      <MaterialCommunityIcons
+                        name="lightning-bolt"
+                        size={18}
+                        color={THEME.colors.spotifyGreen}
+                      />
+                      <Text style={styles.fillerStepText} numberOfLines={1}>
+                        {downloadStep}
+                      </Text>
+                    </View>
+                    <Text style={styles.fillerPercentText}>
+                      {Math.round(downloadProgress * 100)}%
+                    </Text>
+                  </View>
+
+                  {/* Animated Progress Track */}
+                  <View style={styles.fillerTrack}>
+                    <LinearGradient
+                      colors={['#1DB954', '#00F5D4', '#7928CA']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={[
+                        styles.fillerBar,
+                        { width: `${Math.max(6, Math.min(100, downloadProgress * 100))}%` },
+                      ]}
+                    />
+                  </View>
                 </View>
               )}
 
-              {/* Save to Cloud Action Button */}
+              {/* Action Button */}
               <GlassButton
-                title={isDownloading ? 'Saving to Cloud Library...' : 'Save to Cloud Library'}
+                title={
+                  isDownloading
+                    ? downloadOffline
+                      ? 'Downloading Track...'
+                      : 'Saving to Cloud...'
+                    : downloadOffline
+                    ? 'Download to Device'
+                    : 'Save to Cloud Library'
+                }
                 onPress={handleDownload}
                 loading={isDownloading}
                 variant="primary"
                 size="lg"
-                icon={<Ionicons name="cloud-upload-outline" size={20} color="#08090D" />}
+                icon={
+                  <Ionicons
+                    name={downloadOffline ? 'download' : 'cloud-upload-outline'}
+                    size={20}
+                    color="#08090D"
+                  />
+                }
                 style={{ marginTop: 14, marginBottom: 20 }}
               />
             </ScrollView>
@@ -380,17 +488,6 @@ const styles = StyleSheet.create({
     marginTop: 6,
     marginBottom: 10,
   },
-  qualityContainer: {
-    gap: 10,
-    marginBottom: 16,
-  },
-  qualityCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    borderWidth: 1,
-    borderColor: THEME.colors.glassBorder,
-    borderRadius: THEME.borderRadius.md,
-    padding: 12,
-  },
   qualityCardSingle: {
     backgroundColor: 'rgba(29, 185, 84, 0.10)',
     borderWidth: 1,
@@ -398,7 +495,7 @@ const styles = StyleSheet.create({
     borderTopColor: 'rgba(30, 215, 96, 0.65)',
     borderRadius: THEME.borderRadius.md,
     padding: 14,
-    marginBottom: 16,
+    marginBottom: 14,
   },
   qualityHeader: {
     flexDirection: 'row',
@@ -430,47 +527,68 @@ const styles = StyleSheet.create({
     color: THEME.colors.textSecondary,
     lineHeight: 17,
   },
-  cloudNoticeRow: {
+  offlineToggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     backgroundColor: 'rgba(255, 255, 255, 0.04)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: THEME.borderRadius.md,
-    padding: 12,
-    marginBottom: 12,
+    padding: 14,
+    marginBottom: 14,
   },
-  cloudNoticeIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(29, 185, 84, 0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cloudNoticeTitle: {
+  offlineToggleTitle: {
     fontSize: 13,
     fontWeight: '700',
     color: THEME.colors.textPrimary,
   },
-  cloudNoticeSub: {
+  offlineToggleDesc: {
     fontSize: 11,
     color: THEME.colors.textSecondary,
-    marginTop: 2,
-    lineHeight: 15,
+    marginTop: 3,
+    lineHeight: 16,
   },
-  downloadProgressCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(29, 185, 84, 0.12)',
-    padding: 12,
+  fillerContainer: {
+    backgroundColor: 'rgba(29, 185, 84, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(29, 185, 84, 0.3)',
     borderRadius: THEME.borderRadius.md,
-    gap: 10,
+    padding: 14,
+    marginBottom: 14,
+  },
+  fillerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 10,
   },
-  downloadStepText: {
+  fillerStepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
+  },
+  fillerStepText: {
     fontSize: 13,
+    fontWeight: '700',
+    color: THEME.colors.textPrimary,
+    flex: 1,
+  },
+  fillerPercentText: {
+    fontSize: 14,
+    fontWeight: '800',
     color: THEME.colors.spotifyGreen,
-    fontWeight: '600',
+    marginLeft: 8,
+  },
+  fillerTrack: {
+    height: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 5,
+    overflow: 'hidden',
+  },
+  fillerBar: {
+    height: '100%',
+    borderRadius: 5,
   },
 });

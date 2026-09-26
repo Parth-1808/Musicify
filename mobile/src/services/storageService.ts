@@ -4,6 +4,7 @@ import { Platform } from 'react-native';
 import { Song, Playlist } from '../types';
 
 const OFFLINE_SONGS_KEY = 'MUSIFY_OFFLINE_SONGS_CACHE';
+const CLOUD_SONGS_KEY = 'MUSIFY_CLOUD_SONGS_CACHE';
 const PLAYLISTS_KEY = 'MUSIFY_LOCAL_PLAYLISTS';
 const FAVORITES_KEY = 'MUSIFY_FAVORITES';
 const ENV_STORAGE_KEY = 'MUSIFY_ENV_ESTABLISHED';
@@ -145,6 +146,36 @@ export const StorageService = {
     } catch (e) {
       console.error('Failed to get offline songs:', e);
       return [];
+    }
+  },
+
+  async getCloudSongs(): Promise<Song[]> {
+    try {
+      const data = await AsyncStorage.getItem(CLOUD_SONGS_KEY);
+      return data ? JSON.parse(data) : [];
+    } catch {
+      return [];
+    }
+  },
+
+  async saveCloudSong(song: Song): Promise<void> {
+    try {
+      const existing = await this.getCloudSongs();
+      const filtered = existing.filter((s) => s.id !== song.id);
+      filtered.unshift({ ...song, isOffline: false, localAudioUri: undefined });
+      await AsyncStorage.setItem(CLOUD_SONGS_KEY, JSON.stringify(filtered));
+    } catch (e) {
+      console.warn('Error saving cloud song cache:', e);
+    }
+  },
+
+  async removeCloudSong(songId: string): Promise<void> {
+    try {
+      const existing = await this.getCloudSongs();
+      const filtered = existing.filter((s) => s.id !== songId);
+      await AsyncStorage.setItem(CLOUD_SONGS_KEY, JSON.stringify(filtered));
+    } catch (e) {
+      console.warn('Error removing cloud song cache:', e);
     }
   },
 

@@ -55,11 +55,15 @@ export const ApiService = {
     quality: string;
     userId?: string;
     uploadToSupabase?: boolean;
+    saveOffline?: boolean;
+    onProgress?: (progress: number, stepText: string) => void;
   }): Promise<{ success: boolean; song: Song; supabase_synced: boolean }> {
     // 1. On-Device Native Processing (Zero-Port Native Engine)
     try {
+      if (params.onProgress) params.onProgress(0.15, 'Resolving track metadata...');
       const extracted = await NativeExtractor.extract(params.url);
       
+      if (params.onProgress) params.onProgress(0.5, 'Extracting 320kbps Studio Master stream...');
       const songId = extracted.id;
       const song: Song = {
         id: songId,
@@ -75,15 +79,26 @@ export const ApiService = {
         format: extracted.format,
         play_count: 0,
         is_favorite: false,
+        isOffline: false,
         user_id: params.userId,
         created_at: new Date().toISOString(),
       };
 
-      // Automatically cache track into device storage for offline playback
-      try {
-        await StorageService.downloadSongOffline(song);
-      } catch (offlineErr) {
-        console.warn('Device caching note:', offlineErr);
+      if (params.onProgress) params.onProgress(0.75, 'Saving to Cloud Library...');
+      // Save metadata to local cloud cache
+      await StorageService.saveCloudSong(song);
+
+      // ONLY save to device offline storage if explicitly requested by user!
+      if (params.saveOffline) {
+        if (params.onProgress) params.onProgress(0.88, 'Downloading to phone storage for offline playback...');
+        try {
+          const offlineVersion = await StorageService.downloadSongOffline(song);
+          song.isOffline = true;
+          song.localAudioUri = offlineVersion.localAudioUri;
+          song.localArtworkUri = offlineVersion.localArtworkUri;
+        } catch (offlineErr) {
+          console.warn('Device caching note:', offlineErr);
+        }
       }
 
       // Sync metadata to Supabase if logged in
@@ -97,6 +112,8 @@ export const ApiService = {
           console.warn('Supabase sync note:', sbErr);
         }
       }
+
+      if (params.onProgress) params.onProgress(1.0, 'Track ready!');
 
       return {
         success: true,
@@ -151,6 +168,7 @@ export const ApiService = {
    * Fetch songs from Supabase or fallback to backend
    */
   async fetchSongs(userId?: string): Promise<Song[]> {
+    let cloudSongs: Song[] = [];
     const supabase = getSupabase();
     if (supabase && userId) {
       try {
@@ -161,23 +179,43 @@ export const ApiService = {
           .order('created_at', { ascending: false });
 
         if (error) throw error;
-        if (data) return data as Song[];
+        if (data && data.length > 0) {
+          cloudSongs = data as Song[];
+        }
       } catch (e) {
-        console.warn('Supabase fetch failed, attempting backend fallback:', e);
+        console.warn('Supabase fetch failed, checking local cloud cache:', e);
       }
+    }
+
+    // Always merge with local cloud songs cache so guest or offline library is preserved
+    const cachedCloud = await StorageService.getCloudSongs();
+    const songMap = new Map<string, Song>();
+    for (const s of cloudSongs) {
+      songMap.set(s.id, s);
+    }
+    for (const s of cachedCloud) {
+      if (!songMap.has(s.id)) {
+        songMap.set(s.id, s);
+      }
+    }
+
+    if (songMap.size > 0) {
+      return Array.from(songMap.values());
     }
 
     // Fallback: fetch from backend local storage
     try {
       const backendUrl = getBackendUrl();
-      const response = await fetch(`${backendUrl}/api/songs`);
-      if (response.ok) {
-        const result = await response.json();
-        return (result.songs || []).map((s: any) => ({
-          ...s,
-          audio_url: s.audio_url.startsWith('http') ? s.audio_url : `${backendUrl}${s.audio_url}`,
-          artwork_url: s.artwork_url?.startsWith('http') ? s.artwork_url : `${backendUrl}${s.artwork_url}`,
-        }));
+      if (backendUrl) {
+        const response = await fetch(`${backendUrl}/api/songs`);
+        if (response.ok) {
+          const result = await response.json();
+          return (result.songs || []).map((s: any) => ({
+            ...s,
+            audio_url: s.audio_url.startsWith('http') ? s.audio_url : `${backendUrl}${s.audio_url}`,
+            artwork_url: s.artwork_url?.startsWith('http') ? s.artwork_url : `${backendUrl}${s.artwork_url}`,
+          }));
+        }
       }
     } catch (e) {
       console.warn('Backend fetch songs failed:', e);
@@ -219,15 +257,20 @@ export const ApiService = {
   async deleteSong(songId: string, userId?: string): Promise<boolean> {
     let success = true;
 
-    // 1. Delete on backend
+    // 1. Remove from local cloud cache
+    await StorageService.removeCloudSong(songId);
+
+    // 2. Delete on backend
     try {
       const backendUrl = getBackendUrl();
-      await fetch(`${backendUrl}/api/songs/${songId}`, { method: 'DELETE' });
+      if (backendUrl) {
+        await fetch(`${backendUrl}/api/songs/${songId}`, { method: 'DELETE' });
+      }
     } catch (e) {
       console.warn('Backend delete error:', e);
     }
 
-    // 2. Delete on Supabase
+    // 3. Delete on Supabase
     const supabase = getSupabase();
     if (supabase && userId) {
       try {
