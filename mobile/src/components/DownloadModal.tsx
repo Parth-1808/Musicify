@@ -276,7 +276,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                     <Text style={styles.qualityNameSelected}>320 kbps Ultra Studio Master</Text>
                   </View>
                   <View style={styles.badgePillGold}>
-                    <Text style={styles.badgePillGoldText}>320K OPUS / M4A</Text>
+                    <Text style={styles.badgePillGoldText}>320K ULTRA HD</Text>
                   </View>
                 </View>
                 <Text style={styles.qualityDesc}>

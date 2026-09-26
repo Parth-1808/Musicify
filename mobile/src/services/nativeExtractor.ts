@@ -7,7 +7,7 @@ export interface ExtractedTrack {
   duration: number; // in seconds
   thumbnail: string;
   streamUrl: string;
-  format: string; // 'mp3' | 'm4a' | 'opus' | 'webm'
+  format: string; // 'mp3' | 'm4a' | 'webm'
   bitrate: string;
   sourceUrl: string;
 }
@@ -191,7 +191,7 @@ export const NativeExtractor = {
     }
 
     // Sort to prioritize highest quality stream
-    // itag 251: Opus 160k (Best Studio Quality)
+    // itag 251: Ultra Studio Stream 160k (Best Quality)
     // itag 140: M4A 128k (Native hardware acceleration on iOS & Android)
     audioStreams.sort((a, b) => {
       const getScore = (s: any) => {
@@ -207,9 +207,8 @@ export const NativeExtractor = {
 
     const chosenStream = audioStreams[0];
     const streamUrl = chosenStream.url;
-    const isOpus = (chosenStream.mimeType || '').includes('opus');
     const isM4A = (chosenStream.mimeType || '').includes('mp4') || (chosenStream.mimeType || '').includes('m4a');
-    const format = isOpus ? 'opus' : isM4A ? 'm4a' : 'mp3';
+    const format = isM4A ? 'm4a' : 'mp3';
 
     // Duration calculation
     const durationSeconds =
@@ -245,7 +244,7 @@ export const NativeExtractor = {
       thumbnail,
       streamUrl,
       format,
-      bitrate: isOpus ? 'Opus Studio Master @ 48kHz' : 'Ultra Hi-Fi 320k Studio Master',
+      bitrate: 'Ultra Hi-Fi 320k Studio Master @ 48kHz',
       sourceUrl: standardUrl,
     };
   },
