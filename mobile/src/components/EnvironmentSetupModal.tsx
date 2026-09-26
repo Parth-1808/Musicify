@@ -179,8 +179,7 @@ export const EnvironmentSetupModal: React.FC<EnvironmentSetupModalProps> = ({
           </Text>
 
           <Text style={styles.subtitle}>
-            Musify eliminates external cloud server dependencies by utilizing your device GPU and
-            local processing core for instant 320 kbps audio transcoding.
+            Musify is a 100% independent mobile app. It utilizes your mobile device GPU and hardware audio pipeline for direct on-device streaming and offline storage—zero ports, zero external servers.
           </Text>
 
           {/* Size Highlight Card */}

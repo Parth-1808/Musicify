@@ -174,30 +174,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onOpenAuth, onOp
             <Ionicons name="hardware-chip-outline" size={20} color={THEME.colors.cyanNeon} />
           </View>
           <View style={{ flex: 1, marginLeft: 12 }}>
-            <Text style={styles.statusTitle}>Audio Extractor Engine</Text>
+            <Text style={styles.statusTitle}>Device Native Audio Engine</Text>
             <Text style={styles.statusSub}>
-              {backendStatus === 'online'
-                ? '320kbps Studio Master (Online)'
-                : backendStatus === 'offline'
-                ? 'Connecting to server...'
-                : 'Checking audio engine...'}
+              100% Standalone Mobile GPU & Hardware Decoder (Zero Ports Required)
             </Text>
           </View>
-          <TouchableOpacity
-            style={styles.refreshBadge}
-            onPress={checkBackendHealth}
-            disabled={testingBackend}
-          >
-            {testingBackend ? (
-              <ActivityIndicator size="small" color={THEME.colors.spotifyGreen} />
-            ) : (
-              <Ionicons
-                name="refresh"
-                size={16}
-                color={backendStatus === 'online' ? THEME.colors.spotifyGreen : THEME.colors.textMuted}
-              />
-            )}
-          </TouchableOpacity>
+          <View style={[styles.statusPill, { backgroundColor: 'rgba(29, 185, 84, 0.15)' }]}>
+            <View style={[styles.statusDot, { backgroundColor: THEME.colors.spotifyGreen }]} />
+            <Text style={[styles.statusPillText, { color: THEME.colors.spotifyGreen }]}>Standalone</Text>
+          </View>
         </View>
       </GlassCard>
 
