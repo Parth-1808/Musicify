@@ -705,6 +705,9 @@ async def download_track(req: DownloadRequest):
                         song_data["channels"] = pipeline_res["source_metadata"]["channels"]
                         song_data["audio_url_opus"] = supabase_opus_url or local_opus_url
                         song_data["audio_url_aac"] = supabase_aac_url or local_aac_url
+                        song_data["integrated_lufs"] = pipeline_res["loudness"]["integrated_lufs"]
+                        song_data["true_peak_dbtp"] = pipeline_res["loudness"]["true_peak_dbtp"]
+                        song_data["loudness_range"] = pipeline_res["loudness"]["loudness_range"]
                         song_data["audio_version"] = 2
                         supabase_client.table("songs").insert(song_data).execute()
                     except Exception as ins_err:
@@ -758,6 +761,9 @@ async def download_track(req: DownloadRequest):
             "source_bitrate_kbps": pipeline_res["source_metadata"]["source_bitrate_kbps"],
             "sample_rate": pipeline_res["source_metadata"]["sample_rate"],
             "channels": pipeline_res["source_metadata"]["channels"],
+            "integrated_lufs": pipeline_res["loudness"]["integrated_lufs"],
+            "true_peak_dbtp": pipeline_res["loudness"]["true_peak_dbtp"],
+            "loudness_range": pipeline_res["loudness"]["loudness_range"],
             "bitrate": quality_label,
             "format": primary_ext,
             "play_count": 0,

@@ -1,5 +1,13 @@
-import { createAudioPlayer, setAudioModeAsync, AudioPlayer, AudioStatus } from 'expo-audio';
+import { Platform } from 'react-native';
+import {
+  createAudioPlayer,
+  setAudioModeAsync,
+  requestNotificationPermissionsAsync,
+  AudioPlayer,
+  AudioStatus,
+} from 'expo-audio';
 import { Song } from '../types';
+import { syncNowPlaying, clearNowPlaying } from './nowPlaying';
 
 export type PlaybackStatusListener = (status: {
   isPlaying: boolean;
@@ -26,7 +34,17 @@ class AudioService {
         playsInSilentMode: true,
         shouldPlayInBackground: true,
         interruptionMode: 'doNotMix',
+        interruptionModeAndroid: 'doNotMix',
       });
+
+      if (Platform.OS === 'android') {
+        try {
+          await requestNotificationPermissionsAsync();
+        } catch {
+          // Non-fatal if permission request fails or is already determined
+        }
+      }
+
       this.isConfigured = true;
     } catch (e) {
       console.warn('Notice setting expo-audio mode:', e);

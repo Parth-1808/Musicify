@@ -468,161 +468,107 @@ export const ApiService = {
     currentUserEmail?: string,
     currentUserPlays: number = 0
   ): Promise<TopListener[]> {
-    const defaultListeners: TopListener[] = [
-      {
-        userId: 'vip-1',
-        name: 'Parth (Audiophile Pro)',
-        avatarUrl: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
-        totalPlays: 482,
-        totalHours: '26.4',
-        rank: 1,
-        badge: '👑 Grandmaster',
-      },
-      {
-        userId: 'vip-2',
-        name: 'EchoVibe (Hi-Fi)',
-        avatarUrl: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150',
-        totalPlays: 367,
-        totalHours: '20.1',
-        rank: 2,
-        badge: '💎 Diamond',
-      },
-      {
-        userId: 'vip-3',
-        name: 'NeonBeat',
-        avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
-        totalPlays: 295,
-        totalHours: '16.2',
-        rank: 3,
-        badge: '🔥 Gold Master',
-      },
-      {
-        userId: 'vip-4',
-        name: 'BassPulse',
-        avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
-        totalPlays: 214,
-        totalHours: '11.8',
-        rank: 4,
-        badge: '⚡ Silver VIP',
-      },
-      {
-        userId: 'vip-5',
-        name: 'WaveForm99',
-        avatarUrl: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=150',
-        totalPlays: 168,
-        totalHours: '9.3',
-        rank: 5,
-        badge: '🎧 Audio Elite',
-      },
-    ];
-
     const supabase = getSupabase();
+    let realListeners: TopListener[] = [];
+
     if (supabase) {
       try {
-        const { data, error } = await supabase
-          .from('songs')
-          .select('user_id, play_count, duration');
+        // 1. Try calling real-time RPC function get_top_listeners
+        const { data: rpcData, error: rpcError } = await supabase.rpc('get_top_listeners', {
+          limit_count: 10,
+        });
 
-        if (!error && data && data.length > 0) {
-          const userAggregation = new Map<string, { plays: number; seconds: number }>();
-          for (const item of data) {
-            const uid = item.user_id || 'anonymous';
-            const existing = userAggregation.get(uid) || { plays: 0, seconds: 0 };
-            existing.plays += item.play_count || 0;
-            existing.seconds += (item.play_count || 0) * (item.duration || 180);
-            userAggregation.set(uid, existing);
-          }
+        if (!rpcError && rpcData && rpcData.length > 0) {
+          realListeners = rpcData.map((row: any) => ({
+            userId: row.user_id,
+            name: row.name || 'Musify Listener',
+            avatarUrl: row.avatar_url || undefined,
+            totalPlays: Number(row.total_plays || 0),
+            totalHours: String(row.total_hours || '0.0'),
+            rank: Number(row.rank || 1),
+            badge: row.badge || '🎧 Audio Elite',
+            isCurrentUser: Boolean(currentUserId && row.user_id === currentUserId),
+          }));
+        } else {
+          // Fallback: Aggregate directly from real songs in Supabase
+          const { data: songData } = await supabase
+            .from('songs')
+            .select('user_id, play_count, duration');
 
-          if (userAggregation.size > 0) {
-            const dynamicList: TopListener[] = [];
-            let r = 1;
+          if (songData && songData.length > 0) {
+            const userAggregation = new Map<string, { plays: number; seconds: number }>();
+            for (const item of songData) {
+              const uid = item.user_id;
+              if (!uid) continue;
+              const existing = userAggregation.get(uid) || { plays: 0, seconds: 0 };
+              existing.plays += item.play_count || 0;
+              existing.seconds += (item.play_count || 0) * (item.duration || 180);
+              userAggregation.set(uid, existing);
+            }
+
             for (const [uid, agg] of userAggregation.entries()) {
               if (agg.plays > 0) {
                 const isCurrent = currentUserId && uid === currentUserId;
                 const displayName = isCurrent && currentUserEmail
                   ? currentUserEmail.split('@')[0]
-                  : `Musify Listener #${uid.slice(0, 4)}`;
-                const badge =
-                  r === 1
-                    ? '👑 Grandmaster'
-                    : r === 2
-                    ? '💎 Diamond'
-                    : r <= 5
-                    ? '🔥 Gold Master'
-                    : '🎧 Audio Elite';
-                dynamicList.push({
+                  : `User ${uid.slice(0, 5)}`;
+                realListeners.push({
                   userId: uid,
                   name: displayName,
                   totalPlays: agg.plays,
                   totalHours: (agg.seconds / 3600).toFixed(1),
-                  rank: r++,
-                  badge,
+                  rank: 0,
+                  badge: '🎧 Audio Elite',
                   isCurrentUser: Boolean(isCurrent),
                 });
               }
             }
-            if (dynamicList.length > 0) {
-              dynamicList.sort((a, b) => b.totalPlays - a.totalPlays);
-              dynamicList.forEach((item, index) => {
-                item.rank = index + 1;
-                item.badge =
-                  index === 0
-                    ? '👑 Grandmaster'
-                    : index === 1
-                    ? '💎 Diamond'
-                    : index <= 4
-                    ? '🔥 Gold Master'
-                    : '🎧 Audio Elite';
-              });
-              return dynamicList;
-            }
           }
         }
       } catch (err) {
-        console.warn('Supabase top listeners query note:', err);
+        console.warn('Real listeners query note:', err);
       }
     }
 
-    // Merge current user's local listening activity
-    const currentName = currentUserEmail ? currentUserEmail.split('@')[0] : 'You (Current User)';
-    const currentUserItem: TopListener = {
-      userId: currentUserId || 'current-local-user',
-      name: currentName,
-      totalPlays: currentUserPlays,
-      totalHours: ((currentUserPlays * 210) / 3600).toFixed(1),
-      rank: 0,
-      badge:
-        currentUserPlays > 300
-          ? '👑 Grandmaster'
-          : currentUserPlays > 100
-          ? '💎 Diamond'
-          : '🎧 Audio Elite',
-      isCurrentUser: true,
-    };
-
-    const combined = [...defaultListeners];
-    const exists = combined.findIndex(
+    // Include real current user's active listening session
+    const currentName = currentUserEmail ? currentUserEmail.split('@')[0] : 'You';
+    const existingIndex = realListeners.findIndex(
       (l) => l.isCurrentUser || (currentUserId && l.userId === currentUserId)
     );
-    if (exists !== -1) {
-      combined[exists] = currentUserItem;
-    } else if (currentUserPlays > 0) {
-      combined.push(currentUserItem);
+
+    if (existingIndex !== -1) {
+      if (currentUserPlays > realListeners[existingIndex].totalPlays) {
+        realListeners[existingIndex].totalPlays = currentUserPlays;
+        realListeners[existingIndex].totalHours = ((currentUserPlays * 210) / 3600).toFixed(1);
+      }
+      realListeners[existingIndex].isCurrentUser = true;
+      if (currentUserEmail) realListeners[existingIndex].name = currentName;
+    } else if (currentUserPlays > 0 || currentUserId) {
+      realListeners.push({
+        userId: currentUserId || 'current-user',
+        name: currentName,
+        totalPlays: currentUserPlays,
+        totalHours: ((currentUserPlays * 210) / 3600).toFixed(1),
+        rank: 0,
+        badge: '🎧 Audio Elite',
+        isCurrentUser: true,
+      });
     }
 
-    combined.sort((a, b) => b.totalPlays - a.totalPlays);
-    combined.forEach((item, index) => {
+    // Rank real listeners strictly by total plays
+    realListeners.sort((a, b) => b.totalPlays - a.totalPlays);
+    realListeners.forEach((item, index) => {
       item.rank = index + 1;
       item.badge =
         index === 0
           ? '👑 Grandmaster'
           : index === 1
           ? '💎 Diamond'
-          : index <= 4
+          : index <= 3
           ? '🔥 Gold Master'
           : '🎧 Audio Elite';
     });
 
-    return combined;
+    return realListeners;
   },
 };

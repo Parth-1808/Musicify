@@ -570,6 +570,24 @@ def process_audio_source(
         primary_key = list(variants.keys())[0]
 
     primary_variant = variants[primary_key]
+
+    # 7. Run Loudness Measurement Pass on primary output variant (no file modification)
+    primary_variant_path = Path(primary_variant["path"])
+    try:
+        loudness_info = measure_loudness(primary_variant_path)
+        logger.info(
+            "Loudness measured: integrated=%.2f LUFS, true_peak=%.2f dBTP, LRA=%.2f LU",
+            loudness_info["integrated_lufs"], loudness_info["true_peak_dbtp"], loudness_info["loudness_range"]
+        )
+    except Exception as e:
+        logger.warning("Could not measure loudness on %s: %s", primary_variant_path, e)
+        loudness_info = {
+            "integrated_lufs": None,
+            "true_peak_dbtp": None,
+            "loudness_range": None,
+            "loudness_threshold": None,
+        }
+
     elapsed_ms = int((time.time() - start_time) * 1000)
 
     logger.info(
@@ -587,6 +605,7 @@ def process_audio_source(
             "channels": channels,
             "duration": duration,
         },
+        "loudness": loudness_info,
         "variants": variants,
         "primary_key": primary_key,
         "primary_variant": primary_variant,
