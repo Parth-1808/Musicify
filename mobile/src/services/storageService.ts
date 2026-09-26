@@ -6,27 +6,65 @@ import { Song, Playlist } from '../types';
 const OFFLINE_SONGS_KEY = 'MUSIFY_OFFLINE_SONGS_CACHE';
 const PLAYLISTS_KEY = 'MUSIFY_LOCAL_PLAYLISTS';
 const FAVORITES_KEY = 'MUSIFY_FAVORITES';
-
-const BASE_MUSIC_DIR = `${FileSystem.documentDirectory || ''}musify/`;
-const SONGS_DIR = `${BASE_MUSIC_DIR}songs/`;
-const ARTWORK_DIR = `${BASE_MUSIC_DIR}artwork/`;
-const ENV_MARKER_FILE = `${BASE_MUSIC_DIR}env_established.json`;
 const ENV_STORAGE_KEY = 'MUSIFY_ENV_ESTABLISHED';
 
-async function ensureDirectories() {
-  if (Platform.OS === 'web' || !FileSystem.documentDirectory) return;
-  const dirs = [BASE_MUSIC_DIR, SONGS_DIR, ARTWORK_DIR];
-  for (const dir of dirs) {
-    const dirInfo = await FileSystem.getInfoAsync(dir);
-    if (!dirInfo.exists) {
-      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+/**
+ * Dynamic path getters - safely evaluated at runtime instead of module evaluation time.
+ * Prevents native IllegalArgumentException: Invalid URI when FileSystem.documentDirectory
+ * is null/undefined during early React Native / Hermes startup.
+ */
+function getBaseDir(): string | null {
+  if (Platform.OS === 'web' || !FileSystem.documentDirectory) return null;
+  const doc = FileSystem.documentDirectory;
+  return doc.endsWith('/') ? `${doc}musify/` : `${doc}/musify/`;
+}
+
+function getSongsDir(): string | null {
+  const base = getBaseDir();
+  return base ? `${base}songs/` : null;
+}
+
+function getArtworkDir(): string | null {
+  const base = getBaseDir();
+  return base ? `${base}artwork/` : null;
+}
+
+function getEnvMarkerFile(): string | null {
+  const base = getBaseDir();
+  return base ? `${base}env_established.json` : null;
+}
+
+async function ensureDirectories(): Promise<boolean> {
+  if (Platform.OS === 'web') return true;
+  const base = getBaseDir();
+  const songs = getSongsDir();
+  const artwork = getArtworkDir();
+  if (!base || !songs || !artwork) return false;
+
+  try {
+    const dirs = [base, songs, artwork];
+    for (const dir of dirs) {
+      const dirInfo = await FileSystem.getInfoAsync(dir).catch(() => ({ exists: false }));
+      if (!dirInfo || !dirInfo.exists) {
+        await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch((err) => {
+          console.warn('Directory creation notice for', dir, err);
+        });
+      }
     }
+    return true;
+  } catch (err) {
+    console.warn('ensureDirectories safe catch:', err);
+    return false;
   }
 }
 
 export const StorageService = {
   async init() {
-    await ensureDirectories();
+    try {
+      await ensureDirectories();
+    } catch (e) {
+      console.warn('StorageService.init notice:', e);
+    }
   },
 
   /**
@@ -35,13 +73,14 @@ export const StorageService = {
    */
   async isEnvironmentEstablished(): Promise<boolean> {
     try {
-      const flag = await AsyncStorage.getItem(ENV_STORAGE_KEY);
+      const flag = await AsyncStorage.getItem(ENV_STORAGE_KEY).catch(() => null);
       if (flag === 'true') return true;
 
-      if (Platform.OS !== 'web' && FileSystem.documentDirectory) {
-        const info = await FileSystem.getInfoAsync(ENV_MARKER_FILE);
-        if (info.exists) {
-          await AsyncStorage.setItem(ENV_STORAGE_KEY, 'true');
+      const marker = getEnvMarkerFile();
+      if (marker) {
+        const info = await FileSystem.getInfoAsync(marker).catch(() => ({ exists: false }));
+        if (info && info.exists) {
+          await AsyncStorage.setItem(ENV_STORAGE_KEY, 'true').catch(() => {});
           return true;
         }
       }
@@ -61,14 +100,17 @@ export const StorageService = {
       await AsyncStorage.setItem('MUSIFY_ENV_SIZE_MB', sizeMB.toString());
       await AsyncStorage.setItem('MUSIFY_ENV_ESTABLISHED_DATE', new Date().toISOString());
 
-      if (Platform.OS !== 'web' && FileSystem.documentDirectory) {
+      const marker = getEnvMarkerFile();
+      if (marker) {
         await ensureDirectories();
         const payload = JSON.stringify({
           established: true,
           sizeMB,
           date: new Date().toISOString(),
         });
-        await FileSystem.writeAsStringAsync(ENV_MARKER_FILE, payload);
+        await FileSystem.writeAsStringAsync(marker, payload).catch((err) => {
+          console.warn('Could not write marker file:', err);
+        });
       }
     } catch (e) {
       console.warn('Error saving environment marker:', e);
@@ -85,13 +127,17 @@ export const StorageService = {
         return parsed.map((s) => ({ ...s, isOffline: true }));
       }
       
-      // Verify files exist on native filesystem
+      // Verify files exist on native filesystem safely
       const validSongs: Song[] = [];
       for (const song of parsed) {
-        if (song.localAudioUri) {
-          const info = await FileSystem.getInfoAsync(song.localAudioUri);
-          if (info.exists) {
-            validSongs.push({ ...song, isOffline: true });
+        if (song.localAudioUri && (song.localAudioUri.startsWith('file://') || song.localAudioUri.startsWith('content://'))) {
+          try {
+            const info = await FileSystem.getInfoAsync(song.localAudioUri).catch(() => ({ exists: false }));
+            if (info && info.exists) {
+              validSongs.push({ ...song, isOffline: true });
+            }
+          } catch {
+            // Ignore invalid file URI
           }
         }
       }
@@ -123,9 +169,15 @@ export const StorageService = {
 
     await ensureDirectories();
 
+    const songsDir = getSongsDir();
+    const artDir = getArtworkDir();
+    if (!songsDir || !artDir) {
+      throw new Error('Device storage directory unavailable');
+    }
+
     const fileExt = song.format || 'mp3';
-    const localAudioUri = `${SONGS_DIR}${song.id}.${fileExt}`;
-    const localArtworkUri = `${ARTWORK_DIR}${song.id}.jpg`;
+    const localAudioUri = `${songsDir}${song.id}.${fileExt}`;
+    const localArtworkUri = `${artDir}${song.id}.jpg`;
 
     // 1. Download audio file
     const downloadResumable = FileSystem.createDownloadResumable(
@@ -178,11 +230,12 @@ export const StorageService = {
       const song = existing.find((s) => s.id === songId);
 
       if (Platform.OS !== 'web') {
+        const artDir = getArtworkDir();
         if (song?.localAudioUri) {
-          await FileSystem.deleteAsync(song.localAudioUri, { idempotent: true });
+          await FileSystem.deleteAsync(song.localAudioUri, { idempotent: true }).catch(() => {});
         }
-        if (song?.localArtworkUri && song.localArtworkUri.startsWith(ARTWORK_DIR)) {
-          await FileSystem.deleteAsync(song.localArtworkUri, { idempotent: true });
+        if (song?.localArtworkUri && artDir && song.localArtworkUri.startsWith(artDir)) {
+          await FileSystem.deleteAsync(song.localArtworkUri, { idempotent: true }).catch(() => {});
         }
       }
 
@@ -241,23 +294,35 @@ export const StorageService = {
     let songBytes = 0;
     let artworkBytes = 0;
     try {
-      const songFiles = await FileSystem.readDirectoryAsync(SONGS_DIR);
-      for (const file of songFiles) {
-        const info = await FileSystem.getInfoAsync(`${SONGS_DIR}${file}`);
-        if (info.exists && 'size' in info && typeof info.size === 'number') {
-          songBytes += info.size;
+      const songsDir = getSongsDir();
+      const artDir = getArtworkDir();
+      if (songsDir) {
+        const sInfo = await FileSystem.getInfoAsync(songsDir).catch(() => ({ exists: false }));
+        if (sInfo && sInfo.exists) {
+          const songFiles = await FileSystem.readDirectoryAsync(songsDir).catch(() => []);
+          for (const file of songFiles) {
+            const info = await FileSystem.getInfoAsync(`${songsDir}${file}`).catch(() => null);
+            if (info && info.exists && 'size' in info && typeof info.size === 'number') {
+              songBytes += info.size;
+            }
+          }
         }
       }
 
-      const artFiles = await FileSystem.readDirectoryAsync(ARTWORK_DIR);
-      for (const file of artFiles) {
-        const info = await FileSystem.getInfoAsync(`${ARTWORK_DIR}${file}`);
-        if (info.exists && 'size' in info && typeof info.size === 'number') {
-          artworkBytes += info.size;
+      if (artDir) {
+        const aInfo = await FileSystem.getInfoAsync(artDir).catch(() => ({ exists: false }));
+        if (aInfo && aInfo.exists) {
+          const artFiles = await FileSystem.readDirectoryAsync(artDir).catch(() => []);
+          for (const file of artFiles) {
+            const info = await FileSystem.getInfoAsync(`${artDir}${file}`).catch(() => null);
+            if (info && info.exists && 'size' in info && typeof info.size === 'number') {
+              artworkBytes += info.size;
+            }
+          }
         }
       }
     } catch {
-      // Ignore if directory empty
+      // Safe fallback
     }
 
     const totalMB = ((songBytes + artworkBytes) / (1024 * 1024)).toFixed(1);

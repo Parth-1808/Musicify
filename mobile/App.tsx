@@ -29,6 +29,7 @@ import { PlaylistModal } from './src/components/PlaylistModal';
 import { EnvironmentSetupModal } from './src/components/EnvironmentSetupModal';
 import { StorageService } from './src/services/storageService';
 import { GlassToast } from './src/components/GlassToast';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { Song } from './src/types';
 
 type ScreenTab = 'home' | 'library' | 'stats' | 'settings';
@@ -48,12 +49,16 @@ function MainNavigator() {
   const [isRecalibrating, setIsRecalibrating] = useState(false);
 
   useEffect(() => {
-    // Only show on the very first opening if it has NEVER been established before
-    StorageService.isEnvironmentEstablished().then((isEstablished) => {
-      if (!isEstablished) {
-        setEnvSetupVisible(true);
-      }
-    });
+    // Check whether the environment has already been established once
+    StorageService.isEnvironmentEstablished()
+      .then((isEstablished) => {
+        if (!isEstablished) {
+          setEnvSetupVisible(true);
+        }
+      })
+      .catch((err) => {
+        console.warn('Environment check notice:', err);
+      });
   }, []);
 
   // If not logged in and not guest, show AuthScreen
@@ -259,13 +264,15 @@ function MainNavigator() {
 
 export default function App() {
   return (
-    <SafeAreaProvider>
-      <AuthProvider>
-        <MusicProvider>
-          <MainNavigator />
-        </MusicProvider>
-      </AuthProvider>
-    </SafeAreaProvider>
+    <ErrorBoundary>
+      <SafeAreaProvider>
+        <AuthProvider>
+          <MusicProvider>
+            <MainNavigator />
+          </MusicProvider>
+        </AuthProvider>
+      </SafeAreaProvider>
+    </ErrorBoundary>
   );
 }
 

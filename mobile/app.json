@@ -41,6 +41,27 @@
         "projectId": "d191cbba-98db-4f0d-96e1-b459648aec92"
       }
     },
-    "owner": "parth9881"
+    "owner": "parth9881",
+    "plugins": [
+      "expo-font",
+      [
+        "expo-audio",
+        {
+          "enableBackgroundPlayback": true,
+          "enableBackgroundRecording": false,
+          "microphonePermission": "Allow Musify to access microphone if needed."
+        }
+      ],
+      "expo-asset",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#0A0B10"
+        }
+      ]
+    ]
   }
 }

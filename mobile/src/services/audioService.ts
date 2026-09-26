@@ -1,4 +1,4 @@
-import { Audio, AVPlaybackStatus } from 'expo-av';
+import { createAudioPlayer, setAudioModeAsync, AudioPlayer, AudioStatus } from 'expo-audio';
 import { Song } from '../types';
 
 export type PlaybackStatusListener = (status: {
@@ -10,7 +10,8 @@ export type PlaybackStatusListener = (status: {
 }) => void;
 
 class AudioService {
-  private sound: Audio.Sound | null = null;
+  private player: AudioPlayer | null = null;
+  private statusSubscription: { remove: () => void } | null = null;
   private currentSong: Song | null = null;
   private isConfigured = false;
   private statusListeners: Set<PlaybackStatusListener> = new Set();
@@ -21,15 +22,14 @@ class AudioService {
   async initAudio() {
     if (this.isConfigured) return;
     try {
-      await Audio.setAudioModeAsync({
-        staysActiveInBackground: true,
-        playsInSilentModeIOS: true,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
+      await setAudioModeAsync({
+        playsInSilentMode: true,
+        shouldPlayInBackground: true,
+        interruptionMode: 'doNotMix',
       });
       this.isConfigured = true;
     } catch (e) {
-      console.warn('Error setting audio mode:', e);
+      console.warn('Notice setting expo-audio mode:', e);
     }
   }
 
@@ -70,14 +70,24 @@ class AudioService {
     // Reset play count reporting flag for new song
     this.hasReportedPlay = false;
 
-    // Unload existing sound
-    if (this.sound) {
+    // Release existing player
+    if (this.statusSubscription) {
       try {
-        await this.sound.unloadAsync();
-      } catch (e) {
-        console.warn('Error unloading previous sound:', e);
+        this.statusSubscription.remove();
+      } catch {
+        // ignore
       }
-      this.sound = null;
+      this.statusSubscription = null;
+    }
+
+    if (this.player) {
+      try {
+        this.player.pause();
+        this.player.remove();
+      } catch (e) {
+        console.warn('Notice cleaning previous player:', e);
+      }
+      this.player = null;
     }
 
     this.currentSong = song;
@@ -86,39 +96,51 @@ class AudioService {
     const uriToPlay = song.localAudioUri || song.audio_url;
 
     try {
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: uriToPlay },
-        {
-          shouldPlay: true,
-          positionMillis: startPositionMillis,
-          progressUpdateIntervalMillis: 300,
-        },
-        this.onPlaybackStatusUpdate
-      );
+      const newPlayer = createAudioPlayer(uriToPlay, {
+        updateInterval: 250,
+      });
 
-      this.sound = sound;
+      this.player = newPlayer;
+
+      this.statusSubscription = newPlayer.addListener('playbackStatusUpdate', this.onPlaybackStatusUpdate);
+
+      try {
+        newPlayer.setActiveForLockScreen(true, {
+          title: song.title,
+          artist: song.artist,
+          artworkUrl: song.artwork_url,
+        });
+      } catch {
+        // Non-fatal if lock screen metadata fails
+      }
+
+      if (startPositionMillis > 0) {
+        await newPlayer.seekTo(startPositionMillis / 1000);
+      }
+
+      newPlayer.play();
     } catch (error) {
-      console.error('Failed to load audio sound:', error);
+      console.error('Failed to load audio with expo-audio:', error);
       throw error;
     }
   }
 
-  private onPlaybackStatusUpdate = (status: AVPlaybackStatus) => {
-    if (!status.isLoaded) {
-      if (status.error) {
-        console.error(`Playback Error: ${status.error}`);
-      }
-      return;
-    }
+  private onPlaybackStatusUpdate = (status: AudioStatus) => {
+    const positionMillis = Math.round((status.currentTime || 0) * 1000);
+    const durationMillis =
+      Math.round((status.duration || 0) * 1000) ||
+      (this.currentSong?.duration ? this.currentSong.duration * 1000 : 0);
 
-    const { positionMillis, durationMillis = 0, isPlaying, isBuffering, didJustFinish } = status;
+    const isPlaying = Boolean(status.playing);
+    const isBuffering = Boolean(status.isBuffering);
+    const didJustFinish = Boolean(status.didJustFinish);
 
     this.notifyStatus({
       isPlaying,
       positionMillis,
-      durationMillis: durationMillis || (this.currentSong?.duration ? this.currentSong.duration * 1000 : 0),
+      durationMillis,
       isBuffering,
-      didJustFinish: Boolean(didJustFinish),
+      didJustFinish,
     });
 
     // Check if listened for at least 30 seconds or 50% of track
@@ -140,26 +162,43 @@ class AudioService {
   };
 
   async play(): Promise<void> {
-    if (this.sound) {
-      await this.sound.playAsync();
+    try {
+      if (this.player) {
+        this.player.play();
+      }
+    } catch (e) {
+      console.warn('Audio play error:', e);
     }
   }
 
   async pause(): Promise<void> {
-    if (this.sound) {
-      await this.sound.pauseAsync();
+    try {
+      if (this.player) {
+        this.player.pause();
+      }
+    } catch (e) {
+      console.warn('Audio pause error:', e);
     }
   }
 
   async seekTo(positionMillis: number): Promise<void> {
-    if (this.sound) {
-      await this.sound.setPositionAsync(positionMillis);
+    try {
+      if (this.player) {
+        await this.player.seekTo(Math.max(0, positionMillis / 1000));
+      }
+    } catch (e) {
+      console.warn('Audio seek error:', e);
     }
   }
 
   async stop(): Promise<void> {
-    if (this.sound) {
-      await this.sound.stopAsync();
+    try {
+      if (this.player) {
+        this.player.pause();
+        await this.player.seekTo(0);
+      }
+    } catch (e) {
+      console.warn('Audio stop error:', e);
     }
   }
 

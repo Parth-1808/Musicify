@@ -14,6 +14,7 @@ import { useMusic } from '../context/MusicContext';
 import { THEME } from '../theme/theme';
 import { GlassCard } from '../components/GlassCard';
 import { GlassButton } from '../components/GlassButton';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSupabaseConfig, getBackendUrl } from '../config/supabase';
 import { StorageService } from '../services/storageService';
 

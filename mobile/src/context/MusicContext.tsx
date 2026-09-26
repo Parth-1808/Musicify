@@ -188,7 +188,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Initialize offline storage & listeners
   useEffect(() => {
-    StorageService.init();
+    StorageService.init().catch((e) => console.warn('Storage init notice:', e));
 
     const unsubscribe = audioService.addStatusListener((status) => {
       setIsPlaying(status.isPlaying);
