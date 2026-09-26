@@ -694,7 +694,7 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   fillerBarGradient: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     borderRadius: 6,
   },
   fillerShimmer: {
