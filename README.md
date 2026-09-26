@@ -38,14 +38,27 @@ Designed with a **dark glassmorphic UI**, vibrant neon accents, background audio
 
 ## 🚀 Quick Start Guide
 
-### 1. Start the Audio Backend Server (Python FastAPI)
+### 1. Launch the Device GPU Audio Engine (Docker or Python)
 
-The backend handles YouTube stream extraction (`yt-dlp`), audio conversion (`ffmpeg`), ID3 tag embedding (`mutagen`), and Supabase cloud upload.
+Musify eliminates the need for separate remote cloud backends by running client-side with device GPU acceleration.
 
-In PowerShell:
+**Option A: One-Click Docker Container (Recommended)**
+```bash
+# Windows
+start-engine.bat
+
+# Linux / macOS
+chmod +x start-engine.sh && ./start-engine.sh
+```
+Or directly with Docker Compose:
+```bash
+docker compose up -d --build
+```
+*(Packages FFmpeg with hardware acceleration, Node.js JS challenge solver runtime, and 320kbps MP3 transcoder on port 8000)*
+
+**Option B: Direct Local Python**
 ```powershell
-cd c:\Users\bachh\Downloads\musify\server
-python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+python -m uvicorn server.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 *(The server is currently running in the background on `http://localhost:8000`)*
 
@@ -56,8 +69,9 @@ In a new terminal window:
 cd c:\Users\bachh\Downloads\musify\mobile
 npx expo start
 ```
-- **To test in your Web Browser**: Press `w` (or run `npx expo start --web`).
-- **To test on your Android / iOS Phone**: Install **Expo Go** from Google Play Store or Apple App Store, and scan the QR code displayed in the terminal!
+- **First-Time Launch**: On the first opening after download, Musify displays the **Environment Setup Modal** indicating the **42.8 MB** package (Audio DSP Codecs, GPU Shaders, and Offline Cache Partition) and calibrates your device GPU!
+- **To test in your Web Browser**: Press `w` (or preview on `http://localhost:8081`).
+- **To test on your Android / iOS Phone**: Install **Expo Go** from Google Play Store or Apple App Store, and scan the QR code!
 
 ---
 

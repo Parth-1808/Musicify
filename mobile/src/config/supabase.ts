@@ -13,7 +13,7 @@ export const ENV_SUPABASE_ANON =
   process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJxZXJraW9zdndlY2Nwa2tsd2Z2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNTk5NTMsImV4cCI6MjEwNTkzNTk1M30.CwWf1Vz-ThJR_enejWXZh-PzD5uunUNWJjQKpZt6YQE';
 export const ENV_BACKEND_URL =
-  process.env.EXPO_PUBLIC_BACKEND_URL || 'https://musify-backend-8xaj.onrender.com';
+  process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
 let supabaseInstance: SupabaseClient | null = null;
 let currentSupabaseUrl = ENV_SUPABASE_URL;

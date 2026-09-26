@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -11,6 +11,7 @@ import {
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { MusicProvider, useMusic } from './src/context/MusicContext';
@@ -25,6 +26,7 @@ import { FullPlayerModal } from './src/components/FullPlayerModal';
 import { DownloadModal } from './src/components/DownloadModal';
 import { QueueModal } from './src/components/QueueModal';
 import { PlaylistModal } from './src/components/PlaylistModal';
+import { EnvironmentSetupModal } from './src/components/EnvironmentSetupModal';
 import { GlassToast } from './src/components/GlassToast';
 import { Song } from './src/types';
 
@@ -41,6 +43,16 @@ function MainNavigator() {
   const [playlistModalVisible, setPlaylistModalVisible] = useState(false);
   const [authModalVisible, setAuthModalVisible] = useState(false);
   const [targetSongForPlaylist, setTargetSongForPlaylist] = useState<Song | null>(null);
+  const [envSetupVisible, setEnvSetupVisible] = useState(false);
+  const [isRecalibrating, setIsRecalibrating] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem('MUSIFY_ENV_ESTABLISHED').then((val) => {
+      if (val !== 'true') {
+        setEnvSetupVisible(true);
+      }
+    });
+  }, []);
 
   // If not logged in and not guest, show AuthScreen
   if (!user && !isGuest) {
@@ -74,7 +86,13 @@ function MainNavigator() {
         )}
         {activeTab === 'stats' && <StatsScreen onBack={() => setActiveTab('home')} />}
         {activeTab === 'settings' && (
-          <SettingsScreen onOpenAuth={() => setAuthModalVisible(true)} />
+          <SettingsScreen
+            onOpenAuth={() => setAuthModalVisible(true)}
+            onOpenEnvSetup={() => {
+              setIsRecalibrating(true);
+              setEnvSetupVisible(true);
+            }}
+          />
         )}
       </View>
 
@@ -218,6 +236,16 @@ function MainNavigator() {
           setTargetSongForPlaylist(null);
         }}
         targetSong={targetSongForPlaylist}
+      />
+
+      {/* Environment Setup & Device GPU Calibration Modal */}
+      <EnvironmentSetupModal
+        visible={envSetupVisible}
+        isRecalibration={isRecalibrating}
+        onClose={() => {
+          setEnvSetupVisible(false);
+          setIsRecalibrating(false);
+        }}
       />
 
       {/* Floating Glass Toast Notification */}

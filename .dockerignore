@@ -1,0 +1,16 @@
+.git
+.github
+node_modules
+mobile
+server/temp
+server/downloads/*.mp3
+server/downloads/*.flac
+server/downloads/*.opus
+server/downloads/*.m4a
+server/__pycache__
+*.pyc
+*.pyo
+.env.local
+dist
+web-build
+.expo

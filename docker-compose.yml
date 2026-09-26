@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  musify-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: musify-engine
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - SUPABASE_URL=${SUPABASE_URL:-https://bqerkiosvweccpkklwfv.supabase.co}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJxZXJraW9zdndlY2Nwa2tsd2Z2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNTk5NTMsImV4cCI6MjEwNTkzNTk1M30.CwWf1Vz-ThJR_enejWXZh-PzD5uunUNWJjQKpZt6YQE}
+      - PROXY_URL=${PROXY_URL:-}
+    volumes:
+      - musify_downloads:/app/downloads
+      - musify_artwork:/app/artwork
+      - musify_metadata:/app/metadata
+      - ./server/cookies.txt:/app/cookies.txt:ro
+    restart: unless-stopped
+    # Device GPU Acceleration Passthrough
+    # Automatically utilized if NVIDIA GPU is present with nvidia-container-toolkit installed
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  musify_downloads:
+    name: musify_downloads
+  musify_artwork:
+    name: musify_artwork
+  musify_metadata:
+    name: musify_metadata

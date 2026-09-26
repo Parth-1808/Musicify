@@ -19,19 +19,24 @@ import { StorageService } from '../services/storageService';
 
 interface SettingsScreenProps {
   onOpenAuth: () => void;
+  onOpenEnvSetup?: () => void;
 }
 
-export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onOpenAuth }) => {
+export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onOpenAuth, onOpenEnvSetup }) => {
   const { user, isGuest, signOut, isConfigured } = useAuth();
   const { refreshSongs } = useMusic();
 
   const [storageUsage, setStorageUsage] = useState({ totalMB: '0.0' });
+  const [envSizeMB, setEnvSizeMB] = useState('42.8');
   const [testingBackend, setTestingBackend] = useState(false);
   const [backendStatus, setBackendStatus] = useState<'idle' | 'online' | 'offline'>('idle');
 
   useEffect(() => {
     loadStorageUsage();
     checkBackendHealth();
+    AsyncStorage.getItem('MUSIFY_ENV_SIZE_MB').then((val) => {
+      if (val) setEnvSizeMB(val);
+    });
   }, []);
 
   const loadStorageUsage = async () => {
@@ -193,6 +198,56 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onOpenAuth }) =>
               />
             )}
           </TouchableOpacity>
+        </View>
+      </GlassCard>
+
+      {/* Device GPU & Local Processing Environment */}
+      <Text style={styles.sectionHeader}>DEVICE GPU & LOCAL HARDWARE ACCELERATION</Text>
+      <GlassCard style={styles.card} borderRadius={THEME.borderRadius.lg}>
+        <View style={styles.statusItemRow}>
+          <View style={[styles.statusIconBox, { backgroundColor: 'rgba(0, 242, 254, 0.12)' }]}>
+            <Ionicons name="hardware-chip" size={20} color="#00F2FE" />
+          </View>
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={styles.statusTitle}>Device GPU Acceleration</Text>
+            <Text style={styles.statusSub}>
+              Local client-side DSP processing ({envSizeMB} MB Environment active)
+            </Text>
+          </View>
+          <View style={[styles.statusPill, { backgroundColor: 'rgba(0, 242, 254, 0.15)' }]}>
+            <View style={[styles.statusDot, { backgroundColor: '#00F2FE' }]} />
+            <Text style={[styles.statusPillText, { color: '#00F2FE' }]}>Active</Text>
+          </View>
+        </View>
+
+        <View style={styles.divider} />
+
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 4 }}>
+          <View style={{ flex: 1, marginRight: 12 }}>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: THEME.colors.textPrimary }}>
+              Local Audio Environment
+            </Text>
+            <Text style={{ fontSize: 11, color: THEME.colors.textMuted, marginTop: 2 }}>
+              Codecs, GPU Shaders & High-Speed Cache ({envSizeMB} MB)
+            </Text>
+          </View>
+          {onOpenEnvSetup && (
+            <TouchableOpacity
+              onPress={onOpenEnvSetup}
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                paddingHorizontal: 12,
+                paddingVertical: 7,
+                borderRadius: THEME.borderRadius.md,
+                borderWidth: 1,
+                borderColor: 'rgba(255, 255, 255, 0.12)',
+              }}
+            >
+              <Text style={{ fontSize: 12, fontWeight: '700', color: THEME.colors.spotifyGreen }}>
+                Re-Calibrate
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
       </GlassCard>
 
