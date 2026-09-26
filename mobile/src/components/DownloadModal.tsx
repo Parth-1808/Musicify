@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,8 @@ import {
   Switch,
   Alert,
   ScrollView,
+  Animated,
+  Easing,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -52,6 +54,65 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadStep, setDownloadStep] = useState<string>('');
+
+  // Animated progress bar: smooth interpolation + shimmer pulse
+  const progressAnim = useRef(new Animated.Value(0)).current;
+  const shimmerAnim = useRef(new Animated.Value(0)).current;
+  const downloadStartTime = useRef<number>(0);
+  const [etaText, setEtaText] = useState<string>('');
+
+  // Smooth-animate the progress bar whenever downloadProgress changes
+  useEffect(() => {
+    Animated.timing(progressAnim, {
+      toValue: downloadProgress,
+      duration: 600,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [downloadProgress]);
+
+  // Shimmer loop while downloading
+  useEffect(() => {
+    if (isDownloading) {
+      downloadStartTime.current = Date.now();
+      shimmerAnim.setValue(0);
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(shimmerAnim, { toValue: 1, duration: 1200, easing: Easing.inOut(Easing.ease), useNativeDriver: false }),
+          Animated.timing(shimmerAnim, { toValue: 0, duration: 1200, easing: Easing.inOut(Easing.ease), useNativeDriver: false }),
+        ])
+      );
+      loop.start();
+      return () => loop.stop();
+    } else {
+      progressAnim.setValue(0);
+      shimmerAnim.setValue(0);
+      setEtaText('');
+    }
+  }, [isDownloading]);
+
+  // ETA calculation: based on elapsed time and current progress
+  useEffect(() => {
+    if (!isDownloading || downloadProgress <= 0.05) {
+      setEtaText('Estimating...');
+      return;
+    }
+    if (downloadProgress >= 1.0) {
+      setEtaText('Done!');
+      return;
+    }
+    const elapsed = (Date.now() - downloadStartTime.current) / 1000; // seconds
+    const remaining = (elapsed / downloadProgress) * (1 - downloadProgress);
+    if (remaining < 5) {
+      setEtaText('Almost done...');
+    } else if (remaining < 60) {
+      setEtaText(`~${Math.ceil(remaining)}s left`);
+    } else {
+      const mins = Math.floor(remaining / 60);
+      const secs = Math.ceil(remaining % 60);
+      setEtaText(`~${mins}m ${secs}s left`);
+    }
+  }, [downloadProgress, isDownloading]);
 
   const handlePaste = async () => {
     try {
@@ -316,16 +377,21 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                 />
               </View>
 
-              {/* Download Filler Progress Bar */}
+              {/* ── Animated Download Progress Card ── */}
               {isDownloading && (
                 <View style={styles.fillerContainer}>
+                  {/* Top Row: Step Icon + Label + Percentage */}
                   <View style={styles.fillerHeader}>
                     <View style={styles.fillerStepRow}>
-                      <MaterialCommunityIcons
-                        name="lightning-bolt"
-                        size={18}
-                        color={THEME.colors.spotifyGreen}
-                      />
+                      <Animated.View style={{
+                        opacity: shimmerAnim.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1] }),
+                      }}>
+                        <MaterialCommunityIcons
+                          name="lightning-bolt"
+                          size={18}
+                          color={THEME.colors.spotifyGreen}
+                        />
+                      </Animated.View>
                       <Text style={styles.fillerStepText} numberOfLines={1}>
                         {downloadStep}
                       </Text>
@@ -335,17 +401,45 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                     </Text>
                   </View>
 
-                  {/* Animated Progress Track */}
+                  {/* Animated Gradient Progress Track */}
                   <View style={styles.fillerTrack}>
-                    <LinearGradient
-                      colors={['#1DB954', '#00F5D4', '#7928CA']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
+                    <Animated.View
                       style={[
-                        styles.fillerBar,
-                        { width: `${Math.max(6, Math.min(100, downloadProgress * 100))}%` },
+                        styles.fillerBarOuter,
+                        {
+                          width: progressAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: ['2%', '100%'],
+                            extrapolate: 'clamp',
+                          }),
+                        },
                       ]}
-                    />
+                    >
+                      <LinearGradient
+                        colors={['#1DB954', '#00F5D4', '#7928CA']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.fillerBarGradient}
+                      />
+                      {/* Shimmer glow pulse at the leading edge */}
+                      <Animated.View
+                        style={[
+                          styles.fillerShimmer,
+                          {
+                            opacity: shimmerAnim.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [0.3, 0.9],
+                            }),
+                          },
+                        ]}
+                      />
+                    </Animated.View>
+                  </View>
+
+                  {/* Bottom Row: ETA + Size Indicator */}
+                  <View style={styles.fillerFooter}>
+                    <Text style={styles.fillerEtaText}>{etaText}</Text>
+                    <Text style={styles.fillerQualityTag}>320kbps Ultra HD</Text>
                   </View>
                 </View>
               )}
@@ -581,19 +675,57 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   fillerPercentText: {
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 20,
+    fontWeight: '900',
     color: THEME.colors.spotifyGreen,
     marginLeft: 8,
+    letterSpacing: -0.5,
   },
   fillerTrack: {
-    height: 10,
+    height: 12,
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 5,
+    borderRadius: 6,
     overflow: 'hidden',
   },
-  fillerBar: {
+  fillerBarOuter: {
     height: '100%',
-    borderRadius: 5,
+    borderRadius: 6,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  fillerBarGradient: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 6,
+  },
+  fillerShimmer: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.45)',
+    borderRadius: 6,
+  },
+  fillerFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  fillerEtaText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: THEME.colors.textSecondary,
+  },
+  fillerQualityTag: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: THEME.colors.spotifyGreenLight,
+    backgroundColor: 'rgba(29, 185, 84, 0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    overflow: 'hidden',
+    letterSpacing: 0.5,
   },
 });

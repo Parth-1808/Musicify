@@ -195,15 +195,15 @@ export const VipPaywallModal: React.FC<VipPaywallModalProps> = ({
 
               <View style={styles.perksList}>
                 <View style={styles.perkItem}>
-                  <Ionicons name="infinite" size={16} color={THEME.colors.neonCyan} />
+                  <Ionicons name="infinite" size={16} color={THEME.colors.cyanNeon} />
                   <Text style={styles.perkText}>Unlimited Cloud Tracks & Playlists</Text>
                 </View>
                 <View style={styles.perkItem}>
-                  <Ionicons name="musical-notes" size={16} color={THEME.colors.neonCyan} />
+                  <Ionicons name="musical-notes" size={16} color={THEME.colors.cyanNeon} />
                   <Text style={styles.perkText}>Ultra 320kbps Studio Master Playback</Text>
                 </View>
                 <View style={styles.perkItem}>
-                  <Ionicons name="download" size={16} color={THEME.colors.neonCyan} />
+                  <Ionicons name="download" size={16} color={THEME.colors.cyanNeon} />
                   <Text style={styles.perkText}>High-Speed On-Device Offline Caching</Text>
                 </View>
               </View>
@@ -222,7 +222,7 @@ export const VipPaywallModal: React.FC<VipPaywallModalProps> = ({
             </GlassCard>
 
             {/* Referral Card (+5 Songs per Friend) */}
-            <GlassCard glow="gold" style={styles.referralCard} borderRadius={THEME.borderRadius.lg}>
+            <GlassCard glow="cyan" style={styles.referralCard} borderRadius={THEME.borderRadius.lg}>
               <View style={styles.referralHeader}>
                 <View style={styles.giftIcon}>
                   <Ionicons name="gift" size={20} color="#FFD700" />
@@ -271,7 +271,7 @@ export const VipPaywallModal: React.FC<VipPaywallModalProps> = ({
                 </View>
                 <View style={styles.statDivider} />
                 <View style={styles.statBox}>
-                  <Text style={[styles.statNum, { color: THEME.colors.neonCyan }]}>
+                  <Text style={[styles.statNum, { color: THEME.colors.cyanNeon }]}>
                     +{(quota?.total_referrals ?? 0) * 5}
                   </Text>
                   <Text style={styles.statLabel}>Bonus Songs</Text>
@@ -371,7 +371,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(0, 240, 255, 0.3)',
   },
   quotaPillText: {
-    color: THEME.colors.neonCyan,
+    color: THEME.colors.cyanNeon,
     fontSize: 11,
     fontWeight: '700',
   },
@@ -465,7 +465,7 @@ const styles = StyleSheet.create({
   planPrice: {
     fontSize: 24,
     fontWeight: '900',
-    color: THEME.colors.neonCyan,
+    color: THEME.colors.cyanNeon,
   },
   planPeriod: {
     fontSize: 12,
@@ -632,7 +632,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   redeemBtn: {
-    backgroundColor: THEME.colors.neonCyan,
+    backgroundColor: THEME.colors.cyanNeon,
     borderRadius: 10,
     paddingHorizontal: 18,
     justifyContent: 'center',
