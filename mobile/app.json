@@ -10,7 +10,9 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "UIBackgroundModes": ["audio"]
+        "UIBackgroundModes": [
+          "audio"
+        ]
       },
       "bundleIdentifier": "com.musify.app"
     },
@@ -23,6 +25,7 @@
       },
       "permissions": [
         "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_MEDIA_PLAYBACK",
         "WAKE_LOCK",
         "INTERNET",
         "READ_EXTERNAL_STORAGE",
@@ -32,6 +35,12 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "d191cbba-98db-4f0d-96e1-b459648aec92"
+      }
+    },
+    "owner": "parth9881"
   }
 }
